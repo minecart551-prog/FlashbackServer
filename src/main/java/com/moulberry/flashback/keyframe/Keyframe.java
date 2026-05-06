@@ -1,0 +1,93 @@
+package com.moulberry.flashback.keyframe;
+
+import com.google.gson.*;
+import com.moulberry.flashback.Flashback;
+import com.moulberry.flashback.keyframe.handler.KeyframeHandler;
+import com.moulberry.flashback.keyframe.impl.CameraKeyframe;
+import com.moulberry.flashback.keyframe.impl.CameraOrbitKeyframe;
+import com.moulberry.flashback.keyframe.impl.CameraShakeKeyframe;
+import com.moulberry.flashback.keyframe.impl.FOVKeyframe;
+import com.moulberry.flashback.keyframe.impl.TickrateKeyframe;
+import com.moulberry.flashback.keyframe.impl.TimeOfDayKeyframe;
+import com.moulberry.flashback.keyframe.impl.TimelapseKeyframe;
+import com.moulberry.flashback.keyframe.interpolation.InterpolationType;
+
+import java.lang.reflect.Type;
+import java.util.Objects;
+import java.util.function.Consumer;
+
+public abstract class Keyframe {
+
+    private InterpolationType interpolationType = InterpolationType.getDefault();
+
+    public InterpolationType interpolationType() {
+        return interpolationType;
+    }
+
+    public void interpolationType(InterpolationType interpolationType) {
+        this.interpolationType = Objects.requireNonNullElse(interpolationType, InterpolationType.getDefault());
+    }
+
+    public abstract KeyframeType<?> keyframeType();
+    public abstract Keyframe copy();
+    public abstract void apply(KeyframeHandler t);
+    public abstract void applyInterpolated(KeyframeHandler t, Keyframe other, float amount);
+    public abstract void applyInterpolatedSmooth(KeyframeHandler t, Keyframe p1, Keyframe p2, Keyframe p3, float t0, float t1, float t2, float t3, float amount,
+        float lerpAmount, boolean lerpFromRight);
+
+    public void renderEditKeyframe(Consumer<Consumer<Keyframe>> update) {}
+
+    public static class TypeAdapter implements JsonSerializer<Keyframe>, JsonDeserializer<Keyframe> {
+        @Override
+        public Keyframe deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
+            JsonObject jsonObject = json.getAsJsonObject();
+            String type;
+            if (jsonObject.has("type")) {
+                type = jsonObject.get("type").getAsString();
+            } else {
+                throw new RuntimeException("Unable to determine type of keyframe for: " + jsonObject);
+            }
+            Keyframe keyframe = switch (type) {
+                case "camera" -> context.deserialize(json, CameraKeyframe.class);
+                case "camera_orbit" -> context.deserialize(json, CameraOrbitKeyframe.class);
+                case "fov" -> context.deserialize(json, FOVKeyframe.class);
+                case "tickrate" -> context.deserialize(json, TickrateKeyframe.class);
+                case "timelapse" -> context.deserialize(json, TimelapseKeyframe.class);
+                case "time" -> context.deserialize(json, TimeOfDayKeyframe.class);
+                case "camera_shake" -> context.deserialize(json, CameraShakeKeyframe.class);
+                default -> throw new IllegalStateException("Unknown keyframe type: " + type);
+            };
+            keyframe.interpolationType(context.deserialize(jsonObject.get("interpolation_type"), InterpolationType.class));
+            return keyframe;
+        }
+
+        @Override
+        public JsonElement serialize(Keyframe src, Type typeOfSrc, JsonSerializationContext context) {
+            JsonObject jsonObject;
+            if (src instanceof CameraKeyframe cameraKeyframe) {
+                jsonObject = (JsonObject) context.serialize(cameraKeyframe);
+                jsonObject.addProperty("type", "camera");
+            } else if (src instanceof CameraOrbitKeyframe cameraOrbitKeyframe) {
+                jsonObject = (JsonObject) context.serialize(cameraOrbitKeyframe);
+                jsonObject.addProperty("type", "camera_orbit");
+            } else if (src instanceof FOVKeyframe fovKeyframe) {
+                jsonObject = (JsonObject) context.serialize(fovKeyframe);
+                jsonObject.addProperty("type", "fov");
+            } else if (src instanceof TickrateKeyframe tickrateKeyframe) {
+                jsonObject = (JsonObject) context.serialize(tickrateKeyframe);
+                jsonObject.addProperty("type", "tickrate");
+            } else if (src instanceof TimeOfDayKeyframe timeOfDayKeyframe) {
+                jsonObject = (JsonObject) context.serialize(timeOfDayKeyframe);
+                jsonObject.addProperty("type", "time");
+            } else if (src instanceof CameraShakeKeyframe cameraShakeKeyframe) {
+                jsonObject = (JsonObject) context.serialize(cameraShakeKeyframe);
+                jsonObject.addProperty("type", "camera_shake");
+            } else {
+                throw new IllegalStateException("Unknown keyframe type: " + src.getClass());
+            }
+            jsonObject.add("interpolation_type", context.serialize(src.interpolationType));
+            return jsonObject;
+        }
+    }
+
+}

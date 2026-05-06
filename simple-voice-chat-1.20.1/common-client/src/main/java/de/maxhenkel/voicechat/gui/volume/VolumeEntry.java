@@ -1,0 +1,64 @@
+package de.maxhenkel.voicechat.gui.volume;
+
+import de.maxhenkel.voicechat.Voicechat;
+import de.maxhenkel.voicechat.gui.AbstractWidgetHelper;
+import de.maxhenkel.voicechat.gui.widgets.ListScreenEntryBase;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.FastColor;
+
+public abstract class VolumeEntry extends ListScreenEntryBase<VolumeEntry> {
+
+    protected static final Component OTHER_VOLUME = Component.translatable("message.voicechat.other_volume");
+    protected static final Component OTHER_VOLUME_DESCRIPTION = Component.translatable("message.voicechat.other_volume.description");
+    protected static final ResourceLocation OTHER_VOLUME_ICON = new ResourceLocation(Voicechat.MODID, "textures/icons/other_volume.png");
+
+    protected static final int SKIN_SIZE = 24;
+    protected static final int PADDING = 4;
+    protected static final int SLIDER_WIDTH = 100;
+    protected static final int BG_FILL = FastColor.ARGB32.color(255, 74, 74, 74);
+    protected static final int PLAYER_NAME_COLOR = FastColor.ARGB32.color(255, 255, 255, 255);
+
+    protected final Minecraft minecraft;
+    protected final AdjustVolumesScreen screen;
+    protected final AdjustVolumeSlider volumeSlider;
+
+    public VolumeEntry(AdjustVolumesScreen screen, AdjustVolumeSlider.AdjustVolumeEntry entry) {
+        this.minecraft = Minecraft.getInstance();
+        this.screen = screen;
+        this.volumeSlider = new AdjustVolumeSlider(0, 0, SLIDER_WIDTH, 20, entry);
+        this.children.add(volumeSlider);
+    }
+
+    @Override
+    public void render(GuiGraphics guiGraphics, int index, int top, int left, int width, int height, int mouseX, int mouseY, boolean hovered, float delta) {
+        int skinX = left + PADDING;
+        int skinY = top + (height - SKIN_SIZE) / 2;
+        int textX = skinX + SKIN_SIZE + PADDING;
+        int textY = top + (height - minecraft.font.lineHeight) / 2;
+
+        guiGraphics.fill(left, top, left + width, top + height, BG_FILL);
+
+        renderElement(guiGraphics, index, top, left, width, height, mouseX, mouseY, hovered, delta, skinX, skinY, textX, textY);
+
+        volumeSlider.setPosition(left + (width - volumeSlider.getWidth() - PADDING), top + (height - volumeSlider.getHeight()) / 2);
+        volumeSlider.render(guiGraphics, mouseX, mouseY, delta);
+    }
+
+    public abstract void renderElement(GuiGraphics guiGraphics, int index, int top, int left, int width, int height, int mouseX, int mouseY, boolean hovered, float delta, int skinX, int skinY, int textX, int textY);
+
+    protected void renderScrollingString(GuiGraphics guiGraphics, Component text, int top, int left, int width, int height, int color) {
+        int textX = left + PADDING + SKIN_SIZE + PADDING;
+        int textY = top + (height - minecraft.font.lineHeight) / 2;
+        int textSpace = width - PADDING - SKIN_SIZE - PADDING - PADDING - SLIDER_WIDTH - PADDING;
+        int textWidth = minecraft.font.width(text);
+        if (textWidth > textSpace) {
+            AbstractWidgetHelper.renderScrollingText(guiGraphics, minecraft.font, text, textX, textY, textX + textSpace, textY + minecraft.font.lineHeight, color);
+        } else {
+            guiGraphics.drawString(minecraft.font, text, textX, textY, color, false);
+        }
+    }
+
+}

@@ -1,0 +1,23 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "de.maxhenkel.voicechat.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "PlayerManagerMixin"
+  ],
+  "client": [
+    "ConnectionAccessor",
+    "PlayerRendererMixin",
+    "MinecraftMixin",
+    "KeyboardMixin",
+    "MouseMixin",
+    "PackRepositoryMixin",
+    "GuiMixin",
+    "IntegratedServerMixin",
+    "PlayerEntryMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

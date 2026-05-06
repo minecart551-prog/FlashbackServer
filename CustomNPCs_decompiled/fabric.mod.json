@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "customnpcs",
+  "version": "1.0.0",
+
+  "name": "Custom NPCs",
+  "description": "The Custom Npcs mod lets you create your own npcs and lets you customize them how you want",
+  "authors": [
+    "Noppes",
+    "Goodbird"
+  ],
+  "contact": {
+
+  },
+
+  "license": "CC BY-NC",
+
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "noppes.npcs.CustomNpcs"
+    ],
+    "client": [
+      "noppes.npcs.CustomNpcsClient"
+    ]
+  },
+  "mixins": [
+    "customnpcs.mixins.json"
+  ],
+  "accessWidener": "customnpcs.accesswidener",
+
+  "depends": {
+    "fabricloader": ">=0.15.6",
+    "fabric-api": ">=0.92",
+    "minecraft": "=1.20.1"
+  }
+}
