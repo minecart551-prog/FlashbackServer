@@ -1088,19 +1088,11 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
             if (prevVal == null || prevVal != 0 || intVal <= 0) continue;
 
             // Transition from 0 to positive! Trigger gun action via TaczEventInjector
-            com.moulberry.flashback.Flashback.LOGGER.info("[Flashback TACZ] OPTION B: Entity {} data id={} went 0->{}, firing gun action!",
-                entityId, dataId, intVal);
-            
-            // Create a fake custom payload packet and pass to TaczEventInjector
             try {
-                // Determine what kind of action based on the data id
-                // For now, treat all 0->positive transitions as shoot
                 com.moulberry.flashback.compat.tacz.TaczEventInjector.handleTaczEvent(
                     new net.minecraft.resources.ResourceLocation("tacz", "s2c_gun_shoot"),
                     new FriendlyByteBuf(io.netty.buffer.Unpooled.buffer()));
-            } catch (Exception e) {
-                com.moulberry.flashback.Flashback.LOGGER.error("[Flashback TACZ] Failed to fire gun action: {}", e.getMessage());
-            }
+            } catch (Exception ignored) {}
             break; // Only fire once per packet
         }
     }
@@ -1575,16 +1567,6 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
     public void handleCustomPayload(ClientboundCustomPayloadPacket clientboundCustomPayloadPacket) {
         ResourceLocation id = clientboundCustomPayloadPacket.getIdentifier();
         
-        // Log ALL custom payloads being replayed
-        Flashback.LOGGER.info("[Flashback Replay] Replaying custom payload: {}", id);
-        
-        // Special logging for CustomNPCs
-        String packetId = id.toString();
-        if (packetId.contains("customnpcs") || packetId.contains("noppes")) {
-            int dataSize = clientboundCustomPayloadPacket.getData().readableBytes();
-            Flashback.LOGGER.warn("**CUSTOMNPCS PACKET REPLAYING**: {}, data size: {} bytes", packetId, dataSize);
-        }
-        
         // Handle custom Flashback CustomNPCs entity data payload
         if (id.equals(new ResourceLocation("flashback", "customnpcs_entity_data"))) {
             FriendlyByteBuf buf = new FriendlyByteBuf(clientboundCustomPayloadPacket.getData().copy());
@@ -1638,20 +1620,16 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
             return;
         }
         
-        // TACZ replay support: directly fire animation triggers + first-person sounds
+        // TACZ replay support: fire animation triggers + first-person sounds
         if (id.getNamespace().equals("tacz")) {
-            Flashback.LOGGER.info("[Flashback TACZ] Intercepted TACZ packet: {} (path={}, namespace={})", 
-                id, id.getPath(), id.getNamespace());
             if (id.getPath().startsWith("s2c_")) {
                 com.moulberry.flashback.compat.tacz.TaczEventInjector.handleTaczEvent(
                     id, clientboundCustomPayloadPacket.getData());
             }
-            // Also try to dispatch directly to TACZ's own handlers
+            // Also dispatch directly to TACZ's own handlers
             try {
                 dispatchTaczPacketDirectly(id, clientboundCustomPayloadPacket.getData());
-            } catch (Exception e) {
-                Flashback.LOGGER.error("[Flashback TACZ] Direct dispatch failed: {}", e.getMessage());
-            }
+            } catch (Exception ignored) {}
         }
         
         forward(clientboundCustomPayloadPacket);
@@ -1680,9 +1658,7 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
             var method = clazz.getDeclaredMethod("doClientEvent", clazz, net.minecraft.client.player.LocalPlayer.class);
             method.setAccessible(true);
             method.invoke(null, packet, net.minecraft.client.Minecraft.getInstance().player);
-        } catch (Exception e) {
-            Flashback.LOGGER.debug("[Flashback TACZ] Direct dispatch reflection error: {}", e.toString());
-        }
+        } catch (Exception ignored) {}
     }
 
     @Override

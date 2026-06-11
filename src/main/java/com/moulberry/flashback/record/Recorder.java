@@ -745,14 +745,6 @@ public class Recorder {
             return;
         }
 
-        // Log custom payloads from mods
-        if (packet instanceof ClientboundCustomPayloadPacket customPayload) {
-            String packetId = customPayload.getIdentifier().toString();
-            Flashback.LOGGER.info("[Flashback Record] Recording custom payload: {}", packetId);
-            if (packetId.contains("customnpcs") || packetId.contains("noppes")) {
-                Flashback.LOGGER.warn("**CUSTOMNPCS PACKET RECORDED**: {}", packetId);
-            }
-        }
 
         LocalPlayer localPlayer = Minecraft.getInstance().player;
         if (localPlayer != null) {
