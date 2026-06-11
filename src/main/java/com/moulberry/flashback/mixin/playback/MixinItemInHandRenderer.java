@@ -2,17 +2,14 @@ package com.moulberry.flashback.mixin.playback;
 
 import com.google.common.base.MoreObjects;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.math.Axis;
 import com.moulberry.flashback.Flashback;
 import com.moulberry.flashback.ext.ItemInHandRendererExt;
 import com.moulberry.flashback.ext.RemotePlayerExt;
 import net.minecraft.client.player.AbstractClientPlayer;
-import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.ItemInHandRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import org.spongepowered.asm.mixin.Mixin;
@@ -20,7 +17,6 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.UUID;
@@ -92,13 +88,10 @@ public abstract class MixinItemInHandRenderer implements ItemInHandRendererExt {
         float g = clientPlayer.getAttackAnim(partialTick);
         InteractionHand interactionHand = MoreObjects.firstNonNull(clientPlayer.swingingArm, InteractionHand.MAIN_HAND);
         float h = Mth.lerp(partialTick, clientPlayer.xRotO, clientPlayer.getXRot());
-         int handRenderSelection = evaluateWhichHandsToRender(clientPlayer);
+        int handRenderSelection = evaluateWhichHandsToRender(clientPlayer);
         if (clientPlayer instanceof RemotePlayerExt remotePlayerExt) {
-//            float xBob = remotePlayerExt.flashback$getXBob(partialTick);
-//            float yBob = remotePlayerExt.flashback$getYBob(partialTick);
-//            poseStack.mulPose(Axis.XP.rotationDegrees((clientPlayer.getViewXRot(partialTick) - xBob) * 0.1f));
-//            poseStack.mulPose(Axis.YP.rotationDegrees((clientPlayer.getViewYRot(partialTick) - yBob) * 0.1f));
         }
+
         if ((handRenderSelection & RENDER_MAIN_HAND) != 0) {
             l = interactionHand == InteractionHand.MAIN_HAND ? g : 0.0f;
             m = 1.0f - Mth.lerp(partialTick, this.oMainHandHeight, this.mainHandHeight);
@@ -110,33 +103,6 @@ public abstract class MixinItemInHandRenderer implements ItemInHandRendererExt {
             renderArmWithItem(clientPlayer, partialTick, h, InteractionHand.OFF_HAND, l, this.offHandItem, m, poseStack, bufferSource, i);
         }
         bufferSource.endBatch();
-    }
-
-    @ModifyArg(method = "renderPlayerArm", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/entity/EntityRenderDispatcher;getRenderer(Lnet/minecraft/world/entity/Entity;)Lnet/minecraft/client/renderer/entity/EntityRenderer;"))
-    public Entity renderPlayerArm_getRenderer(Entity entity) {
-        AbstractClientPlayer spectatingPlayer = Flashback.getSpectatingPlayer();
-        if (spectatingPlayer != null) {
-            return spectatingPlayer;
-        }
-        return entity;
-    }
-
-    @ModifyArg(method = "renderPlayerArm", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/entity/player/PlayerRenderer;renderLeftHand(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/client/player/AbstractClientPlayer;)V"))
-    public AbstractClientPlayer renderPlayerArm_renderLeftHand(AbstractClientPlayer entity) {
-        AbstractClientPlayer spectatingPlayer = Flashback.getSpectatingPlayer();
-        if (spectatingPlayer != null) {
-            return spectatingPlayer;
-        }
-        return entity;
-    }
-
-    @ModifyArg(method = "renderPlayerArm", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/entity/player/PlayerRenderer;renderRightHand(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;ILnet/minecraft/client/player/AbstractClientPlayer;)V"))
-    public AbstractClientPlayer renderPlayerArm_renderRightHand(AbstractClientPlayer entity) {
-        AbstractClientPlayer spectatingPlayer = Flashback.getSpectatingPlayer();
-        if (spectatingPlayer != null) {
-            return spectatingPlayer;
-        }
-        return entity;
     }
 
     @Unique

@@ -11,6 +11,7 @@ import com.moulberry.flashback.action.*;
 import com.moulberry.flashback.command.BetterColorArgument;
 import com.moulberry.flashback.compat.DistantHorizonsSupport;
 import com.moulberry.flashback.compat.simple_voice_chat.SimpleVoiceChatPlayback;
+import com.moulberry.flashback.compat.tacz.TaczRecordingCompat;
 
 import com.moulberry.flashback.configuration.FlashbackConfig;
 import com.moulberry.flashback.exporting.AsyncFileDialogs;
@@ -448,6 +449,10 @@ public class Flashback implements ModInitializer, ClientModInitializer {
             }
         }
 
+        // Register TACZ recording-compat provider so TACZ's first-person gun rendering
+        // and animation ticking target the Flashback spectated player (when in replay)
+        // instead of Minecraft.getInstance().player.
+        TaczRecordingCompat.tryRegister();
 
 	}
 

@@ -745,10 +745,10 @@ public class Recorder {
             return;
         }
 
-        // Debug: Log custom payloads from mods
+        // Log custom payloads from mods
         if (packet instanceof ClientboundCustomPayloadPacket customPayload) {
             String packetId = customPayload.getIdentifier().toString();
-            Flashback.LOGGER.debug("Recording custom payload packet: {}", packetId);
+            Flashback.LOGGER.info("[Flashback Record] Recording custom payload: {}", packetId);
             if (packetId.contains("customnpcs") || packetId.contains("noppes")) {
                 Flashback.LOGGER.warn("**CUSTOMNPCS PACKET RECORDED**: {}", packetId);
             }

@@ -1,12 +1,14 @@
 package com.moulberry.flashback.mixin.playback;
 
 import com.moulberry.flashback.Flashback;
+import com.moulberry.flashback.compat.tacz.TaczEventInjector;
 import com.moulberry.flashback.packet.FinishedServerTick;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.protocol.PacketUtils;
 import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.game.ClientboundResourcePackPacket;
+import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -16,7 +18,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.net.URL;
-import java.util.UUID;
 
 @Mixin(ClientPacketListener.class)
 public abstract class MixinClientCommonPacketListenerImpl {
@@ -31,9 +32,6 @@ public abstract class MixinClientCommonPacketListenerImpl {
         return null;
     }
 
-    /**
-     * Removes the resource pack prompt screen in replays
-     */
     @Inject(method = "handleResourcePack", at = @At("HEAD"), cancellable = true)
     public void handleResourcePack(ClientboundResourcePackPacket clientboundResourcePackPacket, CallbackInfo ci) {
         if (Flashback.isInReplay()) {
@@ -49,14 +47,21 @@ public abstract class MixinClientCommonPacketListenerImpl {
         }
     }
 
-    @Inject(method = "handleCustomPayload(Lnet/minecraft/network/protocol/game/ClientboundCustomPayloadPacket;)V", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "handleCustomPayload(Lnet/minecraft/network/protocol/game/ClientboundCustomPayloadPacket;)V", at = @At("HEAD"))
     public void handleCustomPayload(ClientboundCustomPayloadPacket clientboundCustomPayloadPacket, CallbackInfo ci) {
-        if (clientboundCustomPayloadPacket.getIdentifier() == FinishedServerTick.TYPE.getId()) {
+        ResourceLocation id = clientboundCustomPayloadPacket.getIdentifier();
+
+        if (id == FinishedServerTick.TYPE.getId()) {
             if (Flashback.EXPORT_JOB != null) {
                 Flashback.EXPORT_JOB.onFinishedServerTick();
             }
-            ci.cancel();
+            return;
+        }
+
+        // Forward TACZ gun event packets to TaczEventInjector during replay
+        // so animations and sounds can be triggered for the spectated player
+        if (Flashback.isInReplay() && id.getNamespace().equals("tacz")) {
+            TaczEventInjector.handleTaczEvent(id, clientboundCustomPayloadPacket.getData());
         }
     }
-
 }

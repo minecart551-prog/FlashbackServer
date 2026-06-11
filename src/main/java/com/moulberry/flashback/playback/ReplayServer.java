@@ -529,13 +529,15 @@ public class ReplayServer extends IntegratedServer {
 
     public void handleGamePacket(FriendlyByteBuf friendlyByteBuf) {
         Packet<? super ClientGamePacketListener> packet;
+        int packetId = -1;
         try {
-            int i = friendlyByteBuf.readVarInt();
-            packet = (Packet<? super ClientGamePacketListener>) ConnectionProtocol.PLAY.createPacket(PacketFlow.CLIENTBOUND, i, friendlyByteBuf);
+            friendlyByteBuf.markReaderIndex();
+            packetId = friendlyByteBuf.readVarInt();
+            packet = (Packet<? super ClientGamePacketListener>) ConnectionProtocol.PLAY.createPacket(PacketFlow.CLIENTBOUND, packetId, friendlyByteBuf);
         } catch (DecoderException decoderException) {
             // Failed to decode packet, lets try ignoring it
             if (printFailedDecodePacketCount > 0) {
-                Flashback.LOGGER.error("Failed to decode packet from replay stream", decoderException);
+                Flashback.LOGGER.error("Failed to decode packet from replay stream (id={})", packetId, decoderException);
                 printFailedDecodePacketCount -= 1;
             }
 
@@ -543,6 +545,12 @@ public class ReplayServer extends IntegratedServer {
             friendlyByteBuf.readerIndex(friendlyByteBuf.writerIndex());
             return;
         }
+
+        // Log ALL custom payload packets
+        if (packet instanceof ClientboundCustomPayloadPacket cp) {
+            Flashback.LOGGER.info("[Flashback] Replaying CustomPayload: {} (id={})", cp.getIdentifier(), packetId);
+        }
+        
         if (packet instanceof ClientboundCustomPayloadPacket cp && cp.getIdentifier().equals(new ResourceLocation("porting_lib", "extra_entity_spawn_data"))) {
             this.gamePacketHandler.handleExtraDataPacket(cp);
         } else {

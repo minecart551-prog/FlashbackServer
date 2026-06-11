@@ -1029,19 +1029,14 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
         forward(clientboundSetDisplayObjectivePacket);
     }
 
+    // Track previous entity data values for TACZ gun action detection
+    private final java.util.Map<Integer, java.util.Map<Integer, Integer>> previousEntityDataValues = new java.util.HashMap<>();
+
     @Override
     public void handleSetEntityData(ClientboundSetEntityDataPacket clientboundSetEntityDataPacket) {
         Entity entity = this.getEntityOrPending(clientboundSetEntityDataPacket.id());
         if (entity == null) {
             return;
-        }
-        
-        // Log entity data updates for CustomNPCs entities
-        if (entity.getType().toString().contains("customnpcs") || entity.getType().toString().contains("npc")) {
-            Flashback.LOGGER.warn("**CUSTOMNPCS ENTITY DATA RECEIVED**: ID={}, Type={}, data items: {}", 
-                entity.getId(), 
-                entity.getType(),
-                clientboundSetEntityDataPacket.packedItems().size());
         }
 
         // Note: SynchedEntityData#assignValues isn't used because it doesn't mark the value as dirty
@@ -1055,6 +1050,58 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
                 continue;
             }
             entityData.set((EntityDataAccessor) dataItem.getAccessor(), dataValue.value(), true);
+        }
+        
+        // Forward the packet to client-side so entity data changes reach the client
+        // This is important for TACZ gun action detection (shoot_cool_down, etc.)
+        this.forward(entity, clientboundSetEntityDataPacket);
+        
+        // Option B: Directly fire TACZ gun actions from entity data changes
+        // TACZ syncs shoot_cool_down, reload_state, draw_cool_down, melee_cool_down as entity data
+        // When these transition from 0 to a positive value, trigger the corresponding gun animation+sound
+        try {
+            detectTaczGunActionFromEntityData(entity, clientboundSetEntityDataPacket);
+        } catch (Exception ignored) {}
+    }
+
+    private void detectTaczGunActionFromEntityData(Entity entity, ClientboundSetEntityDataPacket packet) {
+        // Check if the entity is a player holding a TACZ gun
+        if (!(entity instanceof net.minecraft.world.entity.player.Player player)) return;
+        net.minecraft.world.item.ItemStack heldItem = player.getMainHandItem();
+        if (heldItem.isEmpty()) return;
+        String itemClassName = heldItem.getItem().getClass().getName();
+        if (!itemClassName.contains("tacz")) return;
+
+        // Get or create the tracked values map for this entity
+        int entityId = entity.getId();
+        java.util.Map<Integer, Integer> trackedValues = this.previousEntityDataValues.computeIfAbsent(entityId, k -> new java.util.HashMap<>());
+
+        // Check each changed data value for 0 -> positive transitions
+        for (SynchedEntityData.DataValue<?> dv : packet.packedItems()) {
+            Object val = dv.value();
+            if (!(val instanceof Integer intVal)) continue;
+            
+            int dataId = dv.id();
+            Integer prevVal = trackedValues.get(dataId);
+            trackedValues.put(dataId, intVal);
+            
+            if (prevVal == null || prevVal != 0 || intVal <= 0) continue;
+
+            // Transition from 0 to positive! Trigger gun action via TaczEventInjector
+            com.moulberry.flashback.Flashback.LOGGER.info("[Flashback TACZ] OPTION B: Entity {} data id={} went 0->{}, firing gun action!",
+                entityId, dataId, intVal);
+            
+            // Create a fake custom payload packet and pass to TaczEventInjector
+            try {
+                // Determine what kind of action based on the data id
+                // For now, treat all 0->positive transitions as shoot
+                com.moulberry.flashback.compat.tacz.TaczEventInjector.handleTaczEvent(
+                    new net.minecraft.resources.ResourceLocation("tacz", "s2c_gun_shoot"),
+                    new FriendlyByteBuf(io.netty.buffer.Unpooled.buffer()));
+            } catch (Exception e) {
+                com.moulberry.flashback.Flashback.LOGGER.error("[Flashback TACZ] Failed to fire gun action: {}", e.getMessage());
+            }
+            break; // Only fire once per packet
         }
     }
 
@@ -1528,8 +1575,8 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
     public void handleCustomPayload(ClientboundCustomPayloadPacket clientboundCustomPayloadPacket) {
         ResourceLocation id = clientboundCustomPayloadPacket.getIdentifier();
         
-        // Debug: Log ALL custom payloads being replayed
-        Flashback.LOGGER.debug("Replaying custom payload: {}", id);
+        // Log ALL custom payloads being replayed
+        Flashback.LOGGER.info("[Flashback Replay] Replaying custom payload: {}", id);
         
         // Special logging for CustomNPCs
         String packetId = id.toString();
@@ -1591,7 +1638,51 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
             return;
         }
         
+        // TACZ replay support: directly fire animation triggers + first-person sounds
+        if (id.getNamespace().equals("tacz")) {
+            Flashback.LOGGER.info("[Flashback TACZ] Intercepted TACZ packet: {} (path={}, namespace={})", 
+                id, id.getPath(), id.getNamespace());
+            if (id.getPath().startsWith("s2c_")) {
+                com.moulberry.flashback.compat.tacz.TaczEventInjector.handleTaczEvent(
+                    id, clientboundCustomPayloadPacket.getData());
+            }
+            // Also try to dispatch directly to TACZ's own handlers
+            try {
+                dispatchTaczPacketDirectly(id, clientboundCustomPayloadPacket.getData());
+            } catch (Exception e) {
+                Flashback.LOGGER.error("[Flashback TACZ] Direct dispatch failed: {}", e.getMessage());
+            }
+        }
+        
         forward(clientboundCustomPayloadPacket);
+    }
+
+    private void dispatchTaczPacketDirectly(ResourceLocation id, FriendlyByteBuf data) {
+        String path = id.getPath();
+        // Read the entity ID and gun item from the packet
+        int entityId = data.getInt(data.readerIndex()); // peek at varint
+        // Use reflection to create TACZ packet and handle it
+        try {
+            String className = "com.tacz.guns.network.message.event.ServerMessageGun";
+            String suffix = "";
+            if (path.contains("shoot")) suffix = "Shoot";
+            else if (path.contains("reload")) suffix = "Reload";
+            else if (path.contains("draw")) suffix = "Draw";
+            else if (path.contains("melee")) suffix = "Melee";
+            else return;
+            
+            Class<?> clazz = Class.forName(className + suffix);
+            var constructor = clazz.getConstructor(FriendlyByteBuf.class);
+            Object packet = constructor.newInstance(data.copy());
+            
+            // Get the doClientEvent method and invoke it
+            // This is static and takes (packet, LocalPlayer)
+            var method = clazz.getDeclaredMethod("doClientEvent", clazz, net.minecraft.client.player.LocalPlayer.class);
+            method.setAccessible(true);
+            method.invoke(null, packet, net.minecraft.client.Minecraft.getInstance().player);
+        } catch (Exception e) {
+            Flashback.LOGGER.debug("[Flashback TACZ] Direct dispatch reflection error: {}", e.toString());
+        }
     }
 
     @Override
