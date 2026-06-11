@@ -194,30 +194,9 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
         if (clientboundAddEntityPacket.id >= ReplayServer.REPLAY_VIEWER_IDS_START && clientboundAddEntityPacket.id <= ReplayServer.REPLAY_VIEWER_IDS_START+128) {
             clientboundAddEntityPacket.id += 128;
         }
-        
-        // Log CustomNPCs entity spawns
-        if (clientboundAddEntityPacket.getType().toString().contains("customnpcs") || clientboundAddEntityPacket.getType().toString().contains("npc")) {
-            Flashback.LOGGER.warn("**CUSTOMNPCS ENTITY SPAWNING IN REPLAY**: ID={}, Type={}, pos=({}, {}, {})", 
-                clientboundAddEntityPacket.getId(), 
-                clientboundAddEntityPacket.getType(),
-                clientboundAddEntityPacket.getX(),
-                clientboundAddEntityPacket.getY(),
-                clientboundAddEntityPacket.getZ());
-        }
 
         Entity entity = this.createEntityFromPacket(clientboundAddEntityPacket);
         if (entity != null) {
-            // Log CustomNPCs entity spawning
-            if (entity.getClass().getName().contains("CustomNPC") || entity.getClass().getName().contains("noppes")) {
-                Flashback.LOGGER.warn("**CUSTOMNPCS ENTITY SPAWNED**: ID={}, Type={}, pos=({}, {}, {})", 
-                    clientboundAddEntityPacket.getId(),
-                    entity.getClass().getSimpleName(),
-                    clientboundAddEntityPacket.getX(),
-                    clientboundAddEntityPacket.getY(),
-                    clientboundAddEntityPacket.getZ()
-                );
-            }
-            
             if (entity instanceof Painting) {
                 Direction direction = Direction.from3DDataValue(clientboundAddEntityPacket.getData());
                 if (!direction.getAxis().isHorizontal()) {

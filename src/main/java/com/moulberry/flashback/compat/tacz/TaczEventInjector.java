@@ -21,24 +21,24 @@ public class TaczEventInjector {
     private static boolean initialized = false;
     private static boolean taczPresent = false;
 
+    // Cached reflection handles for animation + sounds (resolved once in init())
     private static Method taczGetGunDisplay;
     private static Method taczGetAnimationStateMachine;
     private static Method taczStateMachineTrigger;
     private static Method taczGetGunIndex;
     private static Class<?> taczGunDataClass;
 
-    private static boolean animationMethodsResolved = false;
-    private static boolean soundMethodsResolved = false;
+    // Cached handles for aim state tick callback (resolved once, reused every tick)
+    private static Method aimFromLocalPlayer;
+    private static Method aimGetDataHolder;
+    private static Field aimIsAimingField;
+    private static Field aimProgressField;
+    private static Field aimOldProgressField;
+    private static boolean aimFieldsResolved = false;
 
-    // Aim state that persists across ticks (to re-apply after tickAimingProgress resets it)
+    // Aim state + once-only tick registration
     private static volatile Boolean pendingAimState = null;
     private static boolean tickCallbackRegistered = false;
-
-    // Cached reflection fields for aim state
-    private static Field aimIsAimingField = null;
-    private static Field aimProgressField = null;
-    private static Field aimOldProgressField = null;
-    private static boolean aimFieldsResolved = false;
 
     private TaczEventInjector() {}
 
@@ -55,7 +55,6 @@ public class TaczEventInjector {
             Class<?> stateMachine = Class.forName("com.tacz.guns.api.client.animation.statemachine.AnimationStateMachine");
             taczStateMachineTrigger = stateMachine.getMethod("trigger", String.class);
 
-            animationMethodsResolved = true;
             taczPresent = true;
         } catch (Exception e) {
             LOGGER.debug("TACZ not present (animation reflection failed): {}", e.toString());
@@ -66,7 +65,6 @@ public class TaczEventInjector {
             Class<?> taczTimelessApi = Class.forName("com.tacz.guns.api.TimelessAPI");
             taczGetGunIndex = taczTimelessApi.getMethod("getClientGunIndex", ResourceLocation.class);
             taczGunDataClass = Class.forName("com.tacz.guns.resource.pojo.data.gun.GunData");
-            soundMethodsResolved = true;
         } catch (Exception e) {
             LOGGER.debug("TACZ not present (sound reflection failed): {}", e.toString());
         }
@@ -79,9 +77,7 @@ public class TaczEventInjector {
 
     public static void handleTaczEvent(ResourceLocation id, FriendlyByteBuf buf) {
         init();
-        if (!taczPresent) {
-            return;
-        }
+        if (!taczPresent || buf == null) return;
 
         String path = id.getPath();
 
@@ -92,9 +88,7 @@ public class TaczEventInjector {
         }
 
         String animInput = mapToAnimationInput(path);
-        if (animInput == null) {
-            return;
-        }
+        if (animInput == null) return;
 
         int entityId;
         ItemStack gunItem;
@@ -108,25 +102,13 @@ public class TaczEventInjector {
             return;
         }
 
-        if (gunItem == null || gunItem.isEmpty()) {
-            return;
-        }
+        if (gunItem == null || gunItem.isEmpty()) return;
+
+        triggerAnimation(gunItem, animInput);
 
         LivingEntity listener = resolveListener(entityId);
-
-        try {
-            triggerAnimation(gunItem, animInput);
-        } catch (Exception e) {
-            LOGGER.debug("TaczEventInjector: failed to trigger animation '{}' for event '{}': {}",
-                    animInput, path, e.toString());
-        }
-
         if (listener != null) {
-            try {
-                playSoundForEvent(path, gunItem, listener);
-            } catch (Exception e) {
-                LOGGER.debug("TaczEventInjector: failed to play sound for event '{}': {}", path, e.toString());
-            }
+            playSoundForEvent(path, gunItem, listener);
         }
     }
 
@@ -140,10 +122,8 @@ public class TaczEventInjector {
             buf.markReaderIndex();
             boolean isAiming = buf.readBoolean();
             buf.resetReaderIndex();
-
             pendingAimState = isAiming;
 
-            // Register tick callback once (runs after LocalPlayer.tick/tickAimingProgress)
             if (!tickCallbackRegistered) {
                 tickCallbackRegistered = true;
                 ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -156,46 +136,35 @@ public class TaczEventInjector {
                         }
                         if (aimIsAimingField == null || aimProgressField == null || aimOldProgressField == null) return;
 
-                        Class<?> gunOperatorClass = Class.forName("com.tacz.guns.api.client.gameplay.IClientPlayerGunOperator");
-                        Method fromLocalPlayer = gunOperatorClass.getMethod("fromLocalPlayer", client.player.getClass());
-                        Object gunOperator = fromLocalPlayer.invoke(null, client.player);
+                        Object gunOperator = aimFromLocalPlayer.invoke(null, client.player);
                         if (gunOperator == null) return;
 
-                        Method getDataHolder = gunOperatorClass.getMethod("getDataHolder");
-                        Object dataHolder = getDataHolder.invoke(gunOperator);
+                        Object dataHolder = aimGetDataHolder.invoke(gunOperator);
                         if (dataHolder == null) return;
 
-                        // Re-apply aim state EVERY tick after tickAimingProgress() resets it
-                        // tickAimingProgress() fails the gun check during replay and resets to 0
                         aimIsAimingField.setBoolean(dataHolder, state);
-                        if (state) {
-                            aimProgressField.setFloat(dataHolder, 1.0f);
-                        } else {
-                            aimProgressField.setFloat(dataHolder, 0.0f);
-                        }
-                        // Keep oldAimingProgress in sync to prevent lerp shaking
-                        aimOldProgressField.set(null, aimProgressField.getFloat(dataHolder));
+                        aimProgressField.setFloat(dataHolder, state ? 1.0f : 0.0f);
+                        aimOldProgressField.set(null, state ? 1.0f : 0.0f);
                     } catch (Exception e) {
                         LOGGER.debug("TaczEventInjector: failed to apply aim state in tick: {}", e.toString());
                     }
                 });
             }
-
-            LOGGER.info("TaczEventInjector: aim state set to {}", isAiming);
         } catch (Exception e) {
-            LOGGER.error("TaczEventInjector: failed to handle aim event: {}", e.toString(), e);
+            LOGGER.debug("TaczEventInjector: failed to handle aim event: {}", e.toString());
         }
     }
 
+    /** Resolve reflection handles ONCE and cache them for all subsequent ticks. */
     private static void resolveAimFields(net.minecraft.client.Minecraft mc) {
         try {
             Class<?> gunOperatorClass = Class.forName("com.tacz.guns.api.client.gameplay.IClientPlayerGunOperator");
-            Method fromLocalPlayer = gunOperatorClass.getMethod("fromLocalPlayer", mc.player.getClass());
-            Object gunOperator = fromLocalPlayer.invoke(null, mc.player);
-            if (gunOperator == null) return;
+            aimFromLocalPlayer = gunOperatorClass.getMethod("fromLocalPlayer", mc.player.getClass());
+            aimGetDataHolder = gunOperatorClass.getMethod("getDataHolder");
 
-            Method getDataHolder = gunOperatorClass.getMethod("getDataHolder");
-            Object dataHolder = getDataHolder.invoke(gunOperator);
+            Object gunOperator = aimFromLocalPlayer.invoke(null, mc.player);
+            if (gunOperator == null) return;
+            Object dataHolder = aimGetDataHolder.invoke(gunOperator);
             if (dataHolder == null) return;
 
             aimIsAimingField = dataHolder.getClass().getField("clientIsAiming");
@@ -205,23 +174,17 @@ public class TaczEventInjector {
             aimOldProgressField.setAccessible(true);
             aimFieldsResolved = true;
         } catch (Exception e) {
-            LOGGER.error("TaczEventInjector: failed to resolve aim fields: {}", e.toString());
+            LOGGER.debug("TaczEventInjector: failed to resolve aim fields: {}", e.toString());
         }
     }
 
     private static LivingEntity resolveListener(int entityId) {
         if (net.minecraft.client.Minecraft.getInstance().level != null) {
             var entity = net.minecraft.client.Minecraft.getInstance().level.getEntity(entityId);
-            if (entity instanceof LivingEntity le) {
-                return le;
-            }
+            if (entity instanceof LivingEntity le) return le;
         }
         var spectating = Flashback.getSpectatingPlayer();
-        if (spectating != null) {
-            return spectating;
-        }
-        var local = net.minecraft.client.Minecraft.getInstance().player;
-        return local;
+        return spectating != null ? spectating : net.minecraft.client.Minecraft.getInstance().player;
     }
 
     private static String mapToAnimationInput(String path) {
@@ -246,7 +209,7 @@ public class TaczEventInjector {
     }
 
     private static void triggerAnimation(ItemStack gunItem, String animInput) {
-        if (!animationMethodsResolved) return;
+        if (taczGetGunDisplay == null || taczStateMachineTrigger == null) return;
         if (gunItem == null || gunItem.isEmpty()) return;
 
         try {
@@ -265,9 +228,8 @@ public class TaczEventInjector {
     }
 
     private static void playSoundForEvent(String path, ItemStack gunItem, LivingEntity player) {
-        if (!soundMethodsResolved) return;
-        if (gunItem == null || gunItem.isEmpty()) return;
-        if (player == null) return;
+        if (taczGetGunIndex == null || taczGetGunDisplay == null) return;
+        if (gunItem == null || gunItem.isEmpty() || player == null) return;
 
         try {
             Class<?> taczIGunClass = Class.forName("com.tacz.guns.api.item.IGun");
