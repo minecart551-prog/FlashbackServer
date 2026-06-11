@@ -1,6 +1,7 @@
 package com.moulberry.flashback.compat.tacz;
 
 import com.moulberry.flashback.Flashback;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
@@ -8,46 +9,36 @@ import net.minecraft.world.item.ItemStack;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 /**
  * Injects TACZ (Timeless and Classics: Zero) gun animation state-machine triggers
  * and first-person sounds into Flashback's replay playback.
- *
- * <p>TACZ broadcasts gun state changes to nearby clients via Fabric custom-payload
- * packets (e.g. {@code tacz:s2c_gun_shoot}, {@code tacz:s2c_gundraw}, ...). These
- * packets are captured by Flashback's packet-recording hook. During replay the
- * original {@code ClientboundCustomPayloadPacket} handler still runs and posts the
- * TACZ event callbacks (which the regular TACZ code listens to), but the
- * <i>animation state-machine</i> triggers and direct sound-playback driven by
- * those packets are only fired locally for the real local player — not for the
- * Flashback spectated player.
- *
- * <p>This injector re-fires the state-machine triggers and the appropriate
- * first-person sound calls for the gun involved in each event packet, so the gun
- * model animates and the first-person sound effects play correctly during replay.
- *
- * <p>3rd-person sounds are <i>not</i> re-fired here: TACZ's own
- * {@code ServerMessageSound.handle -> SoundPlayManager.playMessageSound} already
- * plays the 3rd-person sounds for any nearby entity (including the spectated
- * player, which is a regular {@code LivingEntity} in the world during replay).
  */
 public class TaczEventInjector {
     private static final Logger LOGGER = LoggerFactory.getLogger("flashback-tacz");
     private static boolean initialized = false;
     private static boolean taczPresent = false;
 
-    // Reflection handles for animation triggering
-    private static Method taczGetGunDisplay;             // TimelessAPI.getGunDisplay(ItemStack)
-    private static Method taczGetAnimationStateMachine;  // GunDisplayInstance.getAnimationStateMachine()
-    private static Method taczStateMachineTrigger;       // AnimationStateMachine.trigger(String)
-
-    // Reflection handles for direct sound playback
-    private static Method taczGetGunIndex;               // TimelessAPI.getClientGunIndex(ResourceLocation)
-    private static Class<?> taczGunDataClass;            // GunData
+    private static Method taczGetGunDisplay;
+    private static Method taczGetAnimationStateMachine;
+    private static Method taczStateMachineTrigger;
+    private static Method taczGetGunIndex;
+    private static Class<?> taczGunDataClass;
 
     private static boolean animationMethodsResolved = false;
     private static boolean soundMethodsResolved = false;
+
+    // Aim state that persists across ticks (to re-apply after tickAimingProgress resets it)
+    private static volatile Boolean pendingAimState = null;
+    private static boolean tickCallbackRegistered = false;
+
+    // Cached reflection fields for aim state
+    private static Field aimIsAimingField = null;
+    private static Field aimProgressField = null;
+    private static Field aimOldProgressField = null;
+    private static boolean aimFieldsResolved = false;
 
     private TaczEventInjector() {}
 
@@ -86,33 +77,25 @@ public class TaczEventInjector {
         return taczPresent;
     }
 
-    /**
-     * Handle a TACZ custom-payload packet during Flashback replay.
-     *
-     * <p>Always fires the state-machine trigger and the first-person sound, even
-     * if no player is currently being spectated. The state machine is per
-     * gun-display (a singleton per display id) so the trigger will affect the
-     * right gun regardless of who the local "viewer" is. The sound is played
-     * via {@code SoundPlayManager}, which uses the gun item's position
-     * (or entity-tracking) to localize it.
-     *
-     * @param id  the packet identifier (e.g. {@code tacz:s2c_gun_shoot})
-     * @param buf a {@link FriendlyByteBuf} positioned at the start of the packet data
-     */
     public static void handleTaczEvent(ResourceLocation id, FriendlyByteBuf buf) {
         init();
-        if (!taczPresent) return;
+        if (!taczPresent) {
+            return;
+        }
 
         String path = id.getPath();
+
+        // Handle aim state packet
+        if (path.equals("s2c_gun_aim")) {
+            handleAimEvent(buf);
+            return;
+        }
+
         String animInput = mapToAnimationInput(path);
         if (animInput == null) {
             return;
         }
 
-        // Read the entity id (always first field) and the gun item.
-        // The entity id is used as the listener for the first-person sound; if the
-        // entity cannot be found in the level, we fall back to the spectated
-        // player (if any) or the local player, so the sound still plays.
         int entityId;
         ItemStack gunItem;
         try {
@@ -129,7 +112,6 @@ public class TaczEventInjector {
             return;
         }
 
-        // Resolve the listener entity for the first-person sound.
         LivingEntity listener = resolveListener(entityId);
 
         try {
@@ -148,27 +130,101 @@ public class TaczEventInjector {
         }
     }
 
+    /**
+     * Handle the s2c_gun_aim packet during replay.
+     * Stores the aim state and registers a tick callback that re-applies it
+     * AFTER tickAimingProgress() has run (which would otherwise reset it).
+     */
+    private static void handleAimEvent(FriendlyByteBuf buf) {
+        try {
+            buf.markReaderIndex();
+            boolean isAiming = buf.readBoolean();
+            buf.resetReaderIndex();
+
+            pendingAimState = isAiming;
+
+            // Register tick callback once (runs after LocalPlayer.tick/tickAimingProgress)
+            if (!tickCallbackRegistered) {
+                tickCallbackRegistered = true;
+                ClientTickEvents.END_CLIENT_TICK.register(client -> {
+                    Boolean state = pendingAimState;
+                    if (state == null || client.player == null) return;
+
+                    try {
+                        if (!aimFieldsResolved) {
+                            resolveAimFields(client);
+                        }
+                        if (aimIsAimingField == null || aimProgressField == null || aimOldProgressField == null) return;
+
+                        Class<?> gunOperatorClass = Class.forName("com.tacz.guns.api.client.gameplay.IClientPlayerGunOperator");
+                        Method fromLocalPlayer = gunOperatorClass.getMethod("fromLocalPlayer", client.player.getClass());
+                        Object gunOperator = fromLocalPlayer.invoke(null, client.player);
+                        if (gunOperator == null) return;
+
+                        Method getDataHolder = gunOperatorClass.getMethod("getDataHolder");
+                        Object dataHolder = getDataHolder.invoke(gunOperator);
+                        if (dataHolder == null) return;
+
+                        // Re-apply aim state EVERY tick after tickAimingProgress() resets it
+                        // tickAimingProgress() fails the gun check during replay and resets to 0
+                        aimIsAimingField.setBoolean(dataHolder, state);
+                        if (state) {
+                            aimProgressField.setFloat(dataHolder, 1.0f);
+                        } else {
+                            aimProgressField.setFloat(dataHolder, 0.0f);
+                        }
+                        // Keep oldAimingProgress in sync to prevent lerp shaking
+                        aimOldProgressField.set(null, aimProgressField.getFloat(dataHolder));
+                    } catch (Exception e) {
+                        LOGGER.debug("TaczEventInjector: failed to apply aim state in tick: {}", e.toString());
+                    }
+                });
+            }
+
+            LOGGER.info("TaczEventInjector: aim state set to {}", isAiming);
+        } catch (Exception e) {
+            LOGGER.error("TaczEventInjector: failed to handle aim event: {}", e.toString(), e);
+        }
+    }
+
+    private static void resolveAimFields(net.minecraft.client.Minecraft mc) {
+        try {
+            Class<?> gunOperatorClass = Class.forName("com.tacz.guns.api.client.gameplay.IClientPlayerGunOperator");
+            Method fromLocalPlayer = gunOperatorClass.getMethod("fromLocalPlayer", mc.player.getClass());
+            Object gunOperator = fromLocalPlayer.invoke(null, mc.player);
+            if (gunOperator == null) return;
+
+            Method getDataHolder = gunOperatorClass.getMethod("getDataHolder");
+            Object dataHolder = getDataHolder.invoke(gunOperator);
+            if (dataHolder == null) return;
+
+            aimIsAimingField = dataHolder.getClass().getField("clientIsAiming");
+            aimProgressField = dataHolder.getClass().getField("clientAimingProgress");
+            aimOldProgressField = Class.forName("com.tacz.guns.client.gameplay.LocalPlayerDataHolder")
+                    .getDeclaredField("oldAimingProgress");
+            aimOldProgressField.setAccessible(true);
+            aimFieldsResolved = true;
+        } catch (Exception e) {
+            LOGGER.error("TaczEventInjector: failed to resolve aim fields: {}", e.toString());
+        }
+    }
+
     private static LivingEntity resolveListener(int entityId) {
-        // 1. Try to find the entity in the level by the recorded entity id
         if (net.minecraft.client.Minecraft.getInstance().level != null) {
             var entity = net.minecraft.client.Minecraft.getInstance().level.getEntity(entityId);
             if (entity instanceof LivingEntity le) {
                 return le;
             }
         }
-        // 2. Fall back to the spectated player (Flashback replay)
         var spectating = Flashback.getSpectatingPlayer();
         if (spectating != null) {
             return spectating;
         }
-        // 3. Fall back to the real local player
         var local = net.minecraft.client.Minecraft.getInstance().player;
         return local;
     }
 
     private static String mapToAnimationInput(String path) {
-        // Map TACZ s2c packet path -> AnimationStateMachine trigger input.
-        // See com.tacz.guns.client.animation.statemachine.GunAnimationConstant.
         if (path.equals("s2c_gun_shoot"))      return "shoot";
         if (path.equals("s2c_gun_reload"))     return "reload";
         if (path.equals("s2c_gundraw"))        return "draw";
@@ -178,18 +234,6 @@ public class TaczEventInjector {
         return null;
     }
 
-    /**
-     * Read the gun {@link ItemStack} from the packet payload, if it has one.
-     * TACZ event packet formats:
-     * <ul>
-     *     <li>{@code s2c_gundraw}     : int entityId, ItemStack previousGunItem, ItemStack currentGunItem</li>
-     *     <li>{@code s2c_gun_shoot}   : int shooterId, ItemStack gunItemStack</li>
-     *     <li>{@code s2c_gun_reload}  : int entityId, ItemStack gunItemStack</li>
-     *     <li>{@code s2c_gun_melee}   : int entityId, ItemStack gunItemStack</li>
-     *     <li>{@code s2c_gunfire_select}: int entityId, ItemStack gunItemStack</li>
-     *     <li>{@code s2c_gunfire}     : int shooterId, ItemStack gunItemStack, ...</li>
-     * </ul>
-     */
     private static ItemStack readGunItemForEvent(FriendlyByteBuf buf, String path) {
         return switch (path) {
             case "s2c_gundraw", "s2c_gun_shoot", "s2c_gun_reload", "s2c_gun_melee",
@@ -206,10 +250,8 @@ public class TaczEventInjector {
         if (gunItem == null || gunItem.isEmpty()) return;
 
         try {
-            // TimelessAPI.getGunDisplay(ItemStack) returns Optional<GunDisplayInstance>.
             Object displayOpt = taczGetGunDisplay.invoke(null, gunItem);
             if (displayOpt == null) return;
-            // Unwrap the Optional: call .get() (or .orElse(null)) via reflection.
             Object display = displayOpt.getClass().getMethod("orElse", Object.class).invoke(displayOpt, (Object) null);
             if (display == null) return;
 
@@ -217,17 +259,11 @@ public class TaczEventInjector {
             if (stateMachine == null) return;
 
             taczStateMachineTrigger.invoke(stateMachine, animInput);
-        } catch (IllegalAccessException | java.lang.reflect.InvocationTargetException e) {
-            LOGGER.debug("TaczEventInjector: failed to invoke animation '{}': {}",
-                    animInput, e.toString());
         } catch (Exception e) {
-            LOGGER.debug("TaczEventInjector: reflection error in triggerAnimation: {}", e.toString());
+            LOGGER.debug("TaczEventInjector: failed to trigger animation '{}': {}", animInput, e.toString());
         }
     }
 
-    /**
-     * Play the first-person sound effect for the given gun event.
-     */
     private static void playSoundForEvent(String path, ItemStack gunItem, LivingEntity player) {
         if (!soundMethodsResolved) return;
         if (gunItem == null || gunItem.isEmpty()) return;
@@ -281,11 +317,8 @@ public class TaczEventInjector {
                     playFireSelectSound.invoke(null, player, display);
                 }
             }
-        } catch (IllegalAccessException | java.lang.reflect.InvocationTargetException e) {
-            LOGGER.debug("TaczEventInjector: failed to play sound for event '{}': {}",
-                    path, e.toString());
         } catch (Exception e) {
-            LOGGER.debug("TaczEventInjector: reflection error in playSoundForEvent: {}", e.toString());
+            LOGGER.debug("TaczEventInjector: failed to play sound for event '{}': {}", path, e.toString());
         }
     }
 }

@@ -106,18 +106,8 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
     }
 
     private void forward(Packet<?> packet) {
-        ResourceLocation id = null;
-        if (packet instanceof ClientboundCustomPayloadPacket cp) {
-            id = cp.getIdentifier();
-            if (id.getNamespace().equals("customnpcs")) {
-                Flashback.LOGGER.warn("**CUSTOMNPCS PACKET FORWARDING TO CLIENT**: {}, viewers: {}", id, this.replayServer.getReplayViewers().size());
-            }
-        }
         for (ServerPlayer replayViewer : this.replayServer.getReplayViewers()) {
             replayViewer.connection.send(packet);
-            if (id != null && id.getNamespace().equals("customnpcs")) {
-                Flashback.LOGGER.warn("**SENT TO**: {}", replayViewer.getName().getString());
-            }
         }
     }
 
@@ -1522,55 +1512,10 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
     public void handleCustomPayload(ClientboundCustomPayloadPacket clientboundCustomPayloadPacket) {
         ResourceLocation id = clientboundCustomPayloadPacket.getIdentifier();
         
-        // Handle custom Flashback CustomNPCs entity data payload
-        if (id.equals(new ResourceLocation("flashback", "customnpcs_entity_data"))) {
-            FriendlyByteBuf buf = new FriendlyByteBuf(clientboundCustomPayloadPacket.getData().copy());
-            int entityId = buf.readVarInt();
-            CompoundTag tag = buf.readNbt();
-            
-            // Restore the entity data for CustomNPCs entities
-            Entity entity = this.level().getEntity(entityId);
-            if (entity != null) {
-                try {
-                    // First load the NBT data
-                    entity.load(tag);
-                    
-                    // Use reflection to trigger skin texture update for CustomNPCs
-                    // This is necessary because entity.load() doesn't trigger the skin update logic
-                    try {
-                        // Get the display data from the entity
-                        java.lang.reflect.Field displayField = entity.getClass().getField("display");
-                        Object display = displayField.get(entity);
-                        
-                        // Call the updateClient method on DataDisplay to refresh textures
-                        if (display != null) {
-                            display.getClass().getMethod("updateClient").invoke(display);
-                            Flashback.LOGGER.debug("Triggered skin update for CustomNPC entity {}", entityId);
-                        }
-                    } catch (NoSuchFieldException e) {
-                        // Try alternative approach - call readFromNBT on the entity
-                        Flashback.LOGGER.debug("Could not access display field, trying alternative approach");
-                    }
-                    
-                    // Then re-apply the entity data to ensure skin textures are updated
-                    List<SynchedEntityData.DataValue<?>> nonDefaultEntityData = entity.getEntityData().getNonDefaultValues();
-                    if (nonDefaultEntityData != null && !nonDefaultEntityData.isEmpty()) {
-                        // Forward the entity data packet to ensure client renders correctly
-                        forward(entity, new ClientboundSetEntityDataPacket(entityId, nonDefaultEntityData));
-                    }
-                    
-                    Flashback.LOGGER.debug("Restored CustomNPCs entity data for entity {}", entityId);
-                } catch (Exception e) {
-                    Flashback.LOGGER.debug("Failed to restore CustomNPCs entity data for entity {}: {}", entityId, e.getMessage());
-                }
-            }
-            return;
-        }
-        
-        // Special handling for CustomNPCs packets - ensure they're forwarded to the client's network handler
+        // Special handling for CustomNPCs packets - forward them directly to replay viewers
+        // so the client-side CustomNPCs packet handler can process them (e.g. PacketNpcUpdate
+        // for skin/display data, PacketSyncSkin for skin textures, etc.)
         if (id.getNamespace().equals("customnpcs")) {
-            Flashback.LOGGER.warn("**FORWARDING CUSTOMNPCS PACKET**: {} to {} viewers", id, this.replayServer.getReplayViewers().size());
-            // Let CustomNPCs handle its own packets through the normal packet handler
             forward(clientboundCustomPayloadPacket);
             return;
         }

@@ -1028,29 +1028,33 @@ public class Recorder {
                 gamePackets.add(new ClientboundSetEntityLinkPacket(entity, leashable.getLeashHolder()));
             }
 
-            // For CustomNPCs entities, capture and send their data explicitly
-            // This ensures skins and names are properly restored during replay
+            // For CustomNPCs entities, capture and forward their spawn data as a proper
+            // PacketNpcUpdate-style custom payload. This is essential for NPCs already in
+            // render distance at recording start, as they won't receive a normal PacketNpcUpdate
+            // packet during the initial snapshot.
             if (FabricLoader.getInstance().isModLoaded("customnpcs")) {
                 try {
                     // Check if this is a CustomNPC entity by class name
                     String entityClassName = entity.getClass().getName();
                     if (entityClassName.contains("noppes.npcs.entity.EntityCustomNpc") ||
                         entityClassName.contains("noppes.npcs.entity.EntityNPC")) {
-                        // Save CustomNPCs entity data to NBT
-                        CompoundTag tag = new CompoundTag();
-                        entity.save(tag);
+                        // Use reflection to access writeSpawnData() to avoid compile-time dependency
+                        // This captures only the display/spawn data (name, skin, playerProfile, model, etc.)
+                        // rather than full NBT save which includes position/UUID data
+                        java.lang.reflect.Method writeSpawnData = entity.getClass().getMethod("writeSpawnData");
+                        CompoundTag spawnData = (CompoundTag) writeSpawnData.invoke(entity);
                         
-                        // Send the NBT data as a custom payload for later restoration
+                        // Encode as a PacketNpcUpdate packet (customnpcs:22):
+                        // Format: [int: entityId, CompoundTag: spawnData]
                         FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
-                        buf.writeVarInt(entity.getId());
-                        buf.writeNbt(tag);
+                        buf.writeInt(entity.getId());
+                        buf.writeNbt(spawnData);
                         gamePackets.add(new ClientboundCustomPayloadPacket(
-                            new ResourceLocation("flashback", "customnpcs_entity_data"), 
+                            new ResourceLocation("customnpcs", "22"), 
                             buf
                         ));
                         
-                        // Also log for debugging
-                        Flashback.LOGGER.debug("Recorded CustomNPC entity data for entity {}: {}", entity.getId(), entityClassName);
+                        Flashback.LOGGER.debug("Recorded CustomNPC spawn data for entity {}: {}", entity.getId(), entityClassName);
                     }
                 } catch (Exception e) {
                     Flashback.LOGGER.debug("Failed to save CustomNPC entity data: {}", e.getMessage());
