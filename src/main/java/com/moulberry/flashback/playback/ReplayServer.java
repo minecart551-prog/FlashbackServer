@@ -708,11 +708,23 @@ public class ReplayServer extends IntegratedServer {
         return super.haveTime() && this.jumpToTick < 0;
     }
 
+    @Override
+    protected void waitUntilNextTick() {
+        // Delegate to parent which uses a busy-wait (Thread.yield + Thread.onSpinWait).
+        // During shutdown, halt() sets nextTickTime to now so this returns immediately.
+        super.waitUntilNextTick();
+    }
+
     public EditorState getEditorState() {
         if (Flashback.isExporting()) {
             return Flashback.EXPORT_JOB.getSettings().editorState();
         }
         return EditorStateManager.get(this.metadata.replayIdentifier);
+    }
+
+    @Override
+    public void halt(boolean bl) {
+        super.halt(bl);
     }
 
     @Override

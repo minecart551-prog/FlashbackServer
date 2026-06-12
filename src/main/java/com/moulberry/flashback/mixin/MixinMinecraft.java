@@ -254,6 +254,15 @@ public abstract class MixinMinecraft implements MinecraftExt {
             if (Flashback.getConfig().automaticallyFinish && Flashback.RECORDER != null /* && !isTransferring */ ) {
                 Flashback.finishRecordingReplay();
             }
+
+            // When leaving a replay, halt the replay server immediately so it doesn't
+            // get stuck in its main loop while the client waits for it to stop.
+            // The vanilla IntegratedServer halt() is only triggered after the player
+            // disconnect packet propagates, which can be too slow.
+            ReplayServer replayServer = Flashback.getReplayServer();
+            if (replayServer != null) {
+                replayServer.halt(false);
+            }
         } catch (Exception e) {
             Flashback.LOGGER.error("Failed to finish replay on disconnect", e);
         }
