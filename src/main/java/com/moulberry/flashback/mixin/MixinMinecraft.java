@@ -373,7 +373,7 @@ public abstract class MixinMinecraft implements MinecraftExt {
             Services services = Services.create(this.authenticationService, this.gameDirectory);
             services.profileCache().setExecutor((Executor)this);
             SkullBlockEntity.setup(services, (Executor)this);
-            GameProfileCache.setUsesAuthentication(false);
+            GameProfileCache.setUsesAuthentication(true);
             this.singleplayerServer = MinecraftServer.spin(thread -> new ReplayServer(thread, (Minecraft) (Object) this,
                 levelStorageAccess, packRepository, stem, services, i -> {
                 StoringChunkProgressListener storingChunkProgressListener = new StoringChunkProgressListener(i);

@@ -30,17 +30,6 @@ public class SimpleVoiceChatPlugin implements VoicechatPlugin {
 
     @Nullable
     public static VoicechatClientApi getClientApi() {
-        if (CLIENT_API != null) {
-            return CLIENT_API;
-        }
-
-        try {
-            // Try to get the client API instance
-            CLIENT_API = de.maxhenkel.voicechat.plugins.impl.VoicechatClientApiImpl.instance();
-        } catch (Exception e) {
-            Flashback.LOGGER.warn("Failed to initialize VoicechatClientApi", e);
-        }
-
         return CLIENT_API;
     }
 

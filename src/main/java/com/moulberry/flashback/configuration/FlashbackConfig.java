@@ -52,7 +52,7 @@ public class FlashbackConfig {
 
     @OptionCaption("flashback.option.record_hotbar")
     @OptionDescription("flashback.option.record_hotbar.description")
-    public boolean recordHotbar = false;
+    public boolean recordHotbar = true;
 
     @OptionCaption("flashback.option.local_player_updates_per_second")
     @OptionDescription("flashback.option.local_player_updates_per_second.description")
@@ -62,7 +62,7 @@ public class FlashbackConfig {
     @OptionCaption("flashback.option.record_voice_chat")
     @OptionDescription("flashback.option.record_voice_chat.description")
     @OptionIfModLoaded("voicechat")
-    public boolean recordVoiceChat = false;
+    public boolean recordVoiceChat = true;
 
     public Set<String> openedWindows = new HashSet<>();
     public long nextUnsupportedModLoaderWarning = 0;

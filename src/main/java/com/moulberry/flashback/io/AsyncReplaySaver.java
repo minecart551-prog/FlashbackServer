@@ -143,9 +143,16 @@ public class AsyncReplaySaver {
                         int startWriterIndex = chunkCacheOutput.writerIndex();
                         chunkCacheOutput.writeInt(-1);
 
-                        // Write chunk packet
-                        chunkCacheOutput.writeVarInt(ConnectionProtocol.PLAY.getPacketId(PacketFlow.CLIENTBOUND, packet));
-                        packet.write(chunkCacheOutput);
+                        // Write chunk packet (may fail if mods provide invalid data like null block entity types)
+                        try {
+                            chunkCacheOutput.writeVarInt(ConnectionProtocol.PLAY.getPacketId(PacketFlow.CLIENTBOUND, packet));
+                            packet.write(chunkCacheOutput);
+                        } catch (Exception e) {
+                            // Roll back the chunk output buffer on failure
+                            chunkCacheOutput.writerIndex(startWriterIndex);
+                            Flashback.LOGGER.warn("Failed to serialize chunk packet for replay, skipping: {}", e.getMessage());
+                            continue;
+                        }
                         int endWriterIndex = chunkCacheOutput.writerIndex();
 
                         // Write real size value

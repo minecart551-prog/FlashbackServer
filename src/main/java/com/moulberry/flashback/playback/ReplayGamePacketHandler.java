@@ -416,6 +416,23 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
     }
 
     @Override
+    public void handlePlayerInfoUpdate(ClientboundPlayerInfoUpdatePacket clientboundPlayerInfoUpdatePacket) {
+        for (ClientboundPlayerInfoUpdatePacket.Entry entry : clientboundPlayerInfoUpdatePacket.newEntries()) {
+            GameProfile profile = Objects.requireNonNull(entry.profile());
+            // Fill skin texture properties from Mojang so the client can render player skins
+            if (!profile.getProperties().containsKey("textures")) {
+                try {
+                    Minecraft.getInstance().getMinecraftSessionService().fillProfileProperties(profile, true);
+                } catch (Exception ignored) {
+                }
+            }
+            PlayerInfo playerInfo = new PlayerInfo(profile, false);
+            this.playerInfoMap.putIfAbsent(entry.profileId(), playerInfo);
+        }
+        forward(clientboundPlayerInfoUpdatePacket);
+    }
+
+    @Override
     public void handleMapItemData(ClientboundMapItemDataPacket clientboundMapItemDataPacket) {
         forward(clientboundMapItemDataPacket);
 
@@ -882,15 +899,6 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
             this.playerInfoMap.remove(uuid);
         }
         forward(clientboundPlayerInfoRemovePacket);
-    }
-
-    @Override
-    public void handlePlayerInfoUpdate(ClientboundPlayerInfoUpdatePacket clientboundPlayerInfoUpdatePacket) {
-        for (ClientboundPlayerInfoUpdatePacket.Entry entry : clientboundPlayerInfoUpdatePacket.newEntries()) {
-            PlayerInfo playerInfo = new PlayerInfo(Objects.requireNonNull(entry.profile()), false);
-            this.playerInfoMap.putIfAbsent(entry.profileId(), playerInfo);
-        }
-        forward(clientboundPlayerInfoUpdatePacket);
     }
 
     @Override

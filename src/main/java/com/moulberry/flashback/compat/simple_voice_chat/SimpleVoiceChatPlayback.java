@@ -11,8 +11,6 @@ import de.maxhenkel.voicechat.api.VoicechatClientApi;
 import de.maxhenkel.voicechat.api.audiochannel.ClientEntityAudioChannel;
 import de.maxhenkel.voicechat.api.audiochannel.ClientLocationalAudioChannel;
 import de.maxhenkel.voicechat.api.audiochannel.ClientStaticAudioChannel;
-import de.maxhenkel.voicechat.voice.client.ClientManager;
-import de.maxhenkel.voicechat.voice.client.ClientVoicechat;
 import net.minecraft.world.phys.Vec3;
 
 import java.time.Duration;
@@ -39,7 +37,6 @@ public class SimpleVoiceChatPlayback {
                 return;
             }
 
-            boolean whispering = false;
             if (sound instanceof FlashbackVoiceChatSound.SoundStatic) {
                 ClientStaticAudioChannel channel = staticAudioChannelCache.get(source,
                         () -> clientApi.createStaticAudioChannel(source));
@@ -58,13 +55,8 @@ public class SimpleVoiceChatPlayback {
                 channel.setWhispering(soundEntity.whispering());
                 channel.setDistance(soundEntity.distance());
                 channel.play(sound.samples());
-                whispering = soundEntity.whispering();
             }
 
-            ClientVoicechat client = ClientManager.getClient();
-            if (client != null) {
-                client.getTalkCache().updateTalking(sound.source(), whispering);
-            }
         } catch (Exception e) {
             Flashback.LOGGER.error("Error while trying to play voice chat sound", e);
         }
