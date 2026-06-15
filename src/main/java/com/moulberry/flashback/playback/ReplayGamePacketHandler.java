@@ -451,22 +451,22 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
 
     @Override
     public void handleContainerClose(ClientboundContainerClosePacket clientboundContainerClosePacket) {
-        throw new UnsupportedPacketException(clientboundContainerClosePacket);
+        forward(clientboundContainerClosePacket);
     }
 
     @Override
     public void handleContainerContent(ClientboundContainerSetContentPacket clientboundContainerSetContentPacket) {
-        throw new UnsupportedPacketException(clientboundContainerSetContentPacket);
+        forward(clientboundContainerSetContentPacket);
     }
 
     @Override
     public void handleHorseScreenOpen(ClientboundHorseScreenOpenPacket clientboundHorseScreenOpenPacket) {
-        throw new UnsupportedPacketException(clientboundHorseScreenOpenPacket);
+        forward(clientboundHorseScreenOpenPacket);
     }
 
     @Override
     public void handleContainerSetData(ClientboundContainerSetDataPacket clientboundContainerSetDataPacket) {
-        throw new UnsupportedPacketException(clientboundContainerSetDataPacket);
+        forward(clientboundContainerSetDataPacket);
     }
 
     @Override
@@ -1399,12 +1399,12 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
 
     @Override
     public void handleOpenBook(ClientboundOpenBookPacket clientboundOpenBookPacket) {
-        throw new UnsupportedPacketException(clientboundOpenBookPacket);
+        forward(clientboundOpenBookPacket);
     }
 
     @Override
     public void handleOpenScreen(ClientboundOpenScreenPacket clientboundOpenScreenPacket) {
-        throw new UnsupportedPacketException(clientboundOpenScreenPacket);
+        forward(clientboundOpenScreenPacket);
     }
 
     @Override
