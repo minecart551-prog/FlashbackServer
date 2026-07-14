@@ -2,6 +2,7 @@ package com.moulberry.flashback.mixin.playback;
 
 import com.google.common.base.MoreObjects;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
 import com.moulberry.flashback.Flashback;
 import com.moulberry.flashback.ext.ItemInHandRendererExt;
 import com.moulberry.flashback.ext.RemotePlayerExt;
@@ -90,6 +91,10 @@ public abstract class MixinItemInHandRenderer implements ItemInHandRendererExt {
         float h = Mth.lerp(partialTick, clientPlayer.xRotO, clientPlayer.getXRot());
         int handRenderSelection = evaluateWhichHandsToRender(clientPlayer);
         if (clientPlayer instanceof RemotePlayerExt remotePlayerExt) {
+            float xBob = remotePlayerExt.flashback$getXBob(partialTick);
+            float yBob = remotePlayerExt.flashback$getYBob(partialTick);
+            poseStack.mulPose(Axis.XP.rotationDegrees(Mth.wrapDegrees(clientPlayer.getViewXRot(partialTick) - xBob) * 0.1f));
+            poseStack.mulPose(Axis.YP.rotationDegrees(Mth.wrapDegrees(clientPlayer.getViewYRot(partialTick) - yBob) * 0.1f));
         }
 
         if ((handRenderSelection & RENDER_MAIN_HAND) != 0) {
