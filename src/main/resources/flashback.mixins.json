@@ -61,6 +61,7 @@
     "compat.bobby.MixinBobbyFakeChunkManager",
     "compat.fabric.MixinFabricMinecraftServer",
     "compat.fabric.MixinFabricServerPlayNetworking",
+    "compat.iris.MixinIrisHandRenderer",
     "compat.iris.MixinIrisSystemTimeUniforms",
     "compat.replaymod.MixinReplayModRecording",
     "compat.voice_chat.MixinVoiceChatALSpeakerBase",
