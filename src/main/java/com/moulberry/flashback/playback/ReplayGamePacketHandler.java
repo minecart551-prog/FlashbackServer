@@ -278,7 +278,15 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
             this.spawnPlayer(packet, playerInfo.getProfile(), playerInfo.getGameMode());
             return null;
         } else {
-            return entityType.create(this.level());
+            Entity entity = entityType.create(this.level());
+            if (entity != null) {
+                String name = entity.getClass().getName();
+                if (name.startsWith("fabric.net.mca.") || name.startsWith("net.mca.")) {
+                    entity.discard();
+                    return null;
+                }
+            }
+            return entity;
         }
     }
 

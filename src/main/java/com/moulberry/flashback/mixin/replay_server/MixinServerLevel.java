@@ -58,6 +58,22 @@ public abstract class MixinServerLevel implements ServerLevelExt {
         if (!(entity instanceof Player) && !this.canSpawnEntities) {
             cir.setReturnValue(false);
         }
+        if (entity != null) {
+            String name = entity.getClass().getName();
+            if (name.startsWith("fabric.net.mca.") || name.startsWith("net.mca.")) {
+                cir.setReturnValue(false);
+            }
+        }
+    }
+
+    @Inject(method = "addEntity(Lnet/minecraft/world/entity/Entity;)Z", at = @At("HEAD"), cancellable = true)
+    public void addEntity(Entity entity, CallbackInfoReturnable<Boolean> cir) {
+        if (entity != null) {
+            String name = entity.getClass().getName();
+            if (name.startsWith("fabric.net.mca.") || name.startsWith("net.mca.")) {
+                cir.setReturnValue(false);
+            }
+        }
     }
 
     // Fix for worldgen mods injecting on getGeneratorState to add custom worldgen properties

@@ -127,6 +127,7 @@ public class Flashback implements ModInitializer, ClientModInitializer {
     private static int delayedStartRecording = 0;
     private static boolean delayedOpenConfig = false;
     private static volatile boolean isInReplay = false;
+    public static volatile boolean isLoadingReplay = false;
 
     public static boolean supportsDistantHorizons = false;
 
@@ -753,6 +754,9 @@ public class Flashback implements ModInitializer, ClientModInitializer {
         if (minecraft.level != null) {
             minecraft.level.disconnect();
         }
+        if (minecraft.getSingleplayerServer() != null) {
+            minecraft.getSingleplayerServer().halt(true);
+        }
         minecraft.clearLevel();
         minecraft.setScreen(new TitleScreen());
 
@@ -797,6 +801,7 @@ public class Flashback implements ModInitializer, ClientModInitializer {
             WorldLoader.PackConfig packConfig = new WorldLoader.PackConfig(packRepository, worldDataConfiguration, false, true);
             WorldLoader.InitConfig initConfig = new WorldLoader.InitConfig(packConfig, Commands.CommandSelection.DEDICATED, 4);
 
+            isLoadingReplay = true;
             WorldStem worldStem = Util.blockUntilDone(executor -> WorldLoader.load(initConfig, dataLoadContext -> {
                 Holder.Reference<Biome> plains = dataLoadContext.datapackWorldgen().registryOrThrow(Registries.BIOME).getHolder(Biomes.PLAINS).get();
                 Holder.Reference<DimensionType> overworld = dataLoadContext.datapackWorldgen().registryOrThrow(Registries.DIMENSION_TYPE).getHolder(BuiltinDimensionTypes.OVERWORLD).get();
@@ -813,9 +818,11 @@ public class Flashback implements ModInitializer, ClientModInitializer {
                 return new WorldLoader.DataLoadOutput<>(new PrimaryLevelData(levelSettings, new WorldOptions(0L, false, false),
                     complete.specialWorldProperty(), complete.lifecycle()), complete.dimensionsRegistryAccess());
             }, WorldStem::new, Util.backgroundExecutor(), executor)).get();
+            isLoadingReplay = false;
 
             ((MinecraftExt)Minecraft.getInstance()).flashback$startReplayServer(access, packRepository, worldStem, replayUuid, path);
         } catch (Exception e) {
+            isLoadingReplay = false;
             throw new RuntimeException(e);
         }
     }
