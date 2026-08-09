@@ -24,11 +24,13 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -37,6 +39,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(GameRenderer.class)
 public abstract class MixinGameRenderer {
 
+    @Unique
+    private Vec3 flashback$lastCameraPos = null;
 
     @WrapOperation(method = "render", at=@At(value = "FIELD", target = "Lnet/minecraft/client/Options;pauseOnLostFocus:Z"))
     public boolean getPauseOnLostFocus(Options instance, Operation<Boolean> original) {
@@ -72,6 +76,28 @@ public abstract class MixinGameRenderer {
         }
 
         AccurateEntityPositionHandler.apply(Minecraft.getInstance().level, partialTick);
+
+        if (Flashback.isInReplay() && player != null) {
+            Entity cameraEntity = this.minecraft.getCameraEntity();
+            if (cameraEntity == null) {
+                cameraEntity = player;
+            }
+
+            if (cameraEntity == player) {
+                Vec3 currentPos = player.position();
+                if (this.flashback$lastCameraPos != null) {
+                    double dx = currentPos.x - this.flashback$lastCameraPos.x;
+                    double dz = currentPos.z - this.flashback$lastCameraPos.z;
+                    float horizontalDist = (float) Math.sqrt(dx * dx + dz * dz);
+                    player.walkDist += horizontalDist;
+
+                    player.oBob = player.bob;
+                    float targetBob = horizontalDist * 0.5f;
+                    player.bob += (targetBob - player.bob) * 0.4f;
+                }
+                this.flashback$lastCameraPos = currentPos;
+            }
+        }
     }
 
     @Inject(method = "render", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;clear(IZ)V", remap = false, ordinal = 0), cancellable = true)

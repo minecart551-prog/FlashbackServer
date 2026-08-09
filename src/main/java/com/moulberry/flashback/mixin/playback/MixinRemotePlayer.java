@@ -54,6 +54,13 @@ public class MixinRemotePlayer extends AbstractClientPlayer implements RemotePla
                 float horizontalDist = Mth.sqrt((float) (dx * dx + dz * dz)) * 0.6f;
                 this.walkDistO = this.walkDist;
                 this.walkDist += horizontalDist;
+
+                this.oBob = this.bob;
+                float targetBob = horizontalDist * 0.5f;
+                this.bob += (targetBob - this.bob) * 0.4f;
+            } else {
+                this.oBob = this.bob;
+                this.bob *= 0.4f;
             }
             this.lastPosition = this.position();
         }
