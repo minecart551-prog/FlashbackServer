@@ -815,6 +815,15 @@ public class Flashback implements ModInitializer, ClientModInitializer {
             }, WorldStem::new, Util.backgroundExecutor(), executor)).get();
 
             ((MinecraftExt)Minecraft.getInstance()).flashback$startReplayServer(access, packRepository, worldStem, replayUuid, path);
+        } catch (java.util.concurrent.ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof NullPointerException) {
+                LOGGER.error("Failed to open replay world due to a mod compatibility issue (NullPointerException during world load). " +
+                    "This is likely caused by a mod (e.g. Leukocyte/Cyberware) trying to access server state before it is ready. " +
+                    "Disabling the problematic mod may resolve this.", cause);
+                throw new RuntimeException("Failed to open replay: mod compatibility issue during world initialization", cause);
+            }
+            throw new RuntimeException(e);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
