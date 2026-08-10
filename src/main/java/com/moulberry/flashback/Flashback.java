@@ -128,6 +128,7 @@ public class Flashback implements ModInitializer, ClientModInitializer {
     private static int delayedStartRecording = 0;
     private static boolean delayedOpenConfig = false;
     private static volatile boolean isInReplay = false;
+    public static volatile boolean loadingReplayWorld = false;
 
     public static boolean supportsDistantHorizons = false;
 
@@ -798,37 +799,30 @@ public class Flashback implements ModInitializer, ClientModInitializer {
             WorldLoader.PackConfig packConfig = new WorldLoader.PackConfig(packRepository, worldDataConfiguration, false, true);
             WorldLoader.InitConfig initConfig = new WorldLoader.InitConfig(packConfig, Commands.CommandSelection.DEDICATED, 4);
 
-            WorldStem worldStem = Util.blockUntilDone(executor -> WorldLoader.load(initConfig, dataLoadContext -> {
-                Holder.Reference<Biome> plains = dataLoadContext.datapackWorldgen().registryOrThrow(Registries.BIOME).getHolder(Biomes.PLAINS).get();
-                Holder.Reference<DimensionType> overworld = dataLoadContext.datapackWorldgen().registryOrThrow(Registries.DIMENSION_TYPE).getHolder(BuiltinDimensionTypes.OVERWORLD).get();
+            WorldStem worldStem;
+            loadingReplayWorld = true;
+            try {
+                worldStem = Util.blockUntilDone(executor -> WorldLoader.load(initConfig, dataLoadContext -> {
+                    Holder.Reference<Biome> plains = dataLoadContext.datapackWorldgen().registryOrThrow(Registries.BIOME).getHolder(Biomes.PLAINS).get();
+                    Holder.Reference<DimensionType> overworld = dataLoadContext.datapackWorldgen().registryOrThrow(Registries.DIMENSION_TYPE).getHolder(BuiltinDimensionTypes.OVERWORLD).get();
 
-                WritableRegistry<LevelStem> registryOverworld = new MappedRegistry<>(Registries.LEVEL_STEM, Lifecycle.stable());
-                registryOverworld.register(LevelStem.OVERWORLD,  new LevelStem(overworld, new EmptyLevelSource(plains)), Lifecycle.stable());
-                registryOverworld.freeze();
+                    WritableRegistry<LevelStem> registryOverworld = new MappedRegistry<>(Registries.LEVEL_STEM, Lifecycle.stable());
+                    registryOverworld.register(LevelStem.OVERWORLD,  new LevelStem(overworld, new EmptyLevelSource(plains)), Lifecycle.stable());
+                    registryOverworld.freeze();
 
-                Registry<LevelStem> registryEmpty = new MappedRegistry<>(Registries.LEVEL_STEM, Lifecycle.stable()).freeze();
+                    Registry<LevelStem> registryEmpty = new MappedRegistry<>(Registries.LEVEL_STEM, Lifecycle.stable()).freeze();
 
-                WorldDimensions worldDimensions = new WorldDimensions(registryOverworld);
-                WorldDimensions.Complete complete = worldDimensions.bake(registryEmpty);
+                    WorldDimensions worldDimensions = new WorldDimensions(registryOverworld);
+                    WorldDimensions.Complete complete = worldDimensions.bake(registryEmpty);
 
-                return new WorldLoader.DataLoadOutput<>(new PrimaryLevelData(levelSettings, new WorldOptions(0L, false, false),
-                    complete.specialWorldProperty(), complete.lifecycle()), complete.dimensionsRegistryAccess());
-            }, WorldStem::new, Util.backgroundExecutor(), executor)).get();
+                    return new WorldLoader.DataLoadOutput<>(new PrimaryLevelData(levelSettings, new WorldOptions(0L, false, false),
+                        complete.specialWorldProperty(), complete.lifecycle()), complete.dimensionsRegistryAccess());
+                }, WorldStem::new, Util.backgroundExecutor(), executor)).get();
+            } finally {
+                loadingReplayWorld = false;
+            }
 
             ((MinecraftExt)Minecraft.getInstance()).flashback$startReplayServer(access, packRepository, worldStem, replayUuid, path);
-        } catch (java.util.concurrent.ExecutionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof NullPointerException) {
-                LOGGER.error("Failed to open replay world due to a mod compatibility issue", cause);
-                Minecraft.getInstance().setScreen(new AlertScreen(
-                    () -> Minecraft.getInstance().setScreen(new TitleScreen()),
-                    Component.literal("Failed to Open Replay"),
-                    Component.literal("A mod compatibility issue prevented the replay from opening. " +
-                        "Disabling mods like Leukocyte or Cyberware may resolve this.")
-                ));
-                return;
-            }
-            throw new RuntimeException(e);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

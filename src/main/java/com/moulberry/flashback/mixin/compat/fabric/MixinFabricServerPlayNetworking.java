@@ -1,5 +1,6 @@
 package com.moulberry.flashback.mixin.compat.fabric;
 
+import com.moulberry.flashback.Flashback;
 import com.moulberry.flashback.playback.FakePlayer;
 import net.fabricmc.fabric.api.networking.v1.FabricPacket;
 import net.fabricmc.fabric.api.networking.v1.PacketType;
@@ -32,7 +33,7 @@ public class MixinFabricServerPlayNetworking {
 
     @Inject(method = "send(Lnet/minecraft/server/level/ServerPlayer;Lnet/fabricmc/fabric/api/networking/v1/FabricPacket;)V", at = @At("HEAD"), cancellable = true, require = 0)
     private static <T extends FabricPacket> void send(ServerPlayer player, T packet, CallbackInfo ci) {
-        if (player instanceof FakePlayer) {
+        if (player instanceof FakePlayer || Flashback.loadingReplayWorld) {
             ci.cancel();
         }
     }
