@@ -63,6 +63,7 @@ import net.minecraft.FileUtil;
 import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.toasts.SystemToast;
+import net.minecraft.client.gui.screens.AlertScreen;
 import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
@@ -818,10 +819,14 @@ public class Flashback implements ModInitializer, ClientModInitializer {
         } catch (java.util.concurrent.ExecutionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof NullPointerException) {
-                LOGGER.error("Failed to open replay world due to a mod compatibility issue (NullPointerException during world load). " +
-                    "This is likely caused by a mod (e.g. Leukocyte/Cyberware) trying to access server state before it is ready. " +
-                    "Disabling the problematic mod may resolve this.", cause);
-                throw new RuntimeException("Failed to open replay: mod compatibility issue during world initialization", cause);
+                LOGGER.error("Failed to open replay world due to a mod compatibility issue", cause);
+                Minecraft.getInstance().setScreen(new AlertScreen(
+                    () -> Minecraft.getInstance().setScreen(new TitleScreen()),
+                    Component.literal("Failed to Open Replay"),
+                    Component.literal("A mod compatibility issue prevented the replay from opening. " +
+                        "Disabling mods like Leukocyte or Cyberware may resolve this.")
+                ));
+                return;
             }
             throw new RuntimeException(e);
         } catch (Exception e) {
