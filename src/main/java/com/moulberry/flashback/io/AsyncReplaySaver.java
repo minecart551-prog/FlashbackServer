@@ -194,7 +194,7 @@ public class AsyncReplaySaver {
         if (packet instanceof ClientboundCustomPayloadPacket cp) {
             String modId = cp.getIdentifier().getNamespace();
             // Record custom packets from mods we want to support
-            if (modId.equals("customnpcs") || modId.equals("noppes") || modId.equals("tacz")) {
+            if (modId.equals("customnpcs") || modId.equals("noppes") || modId.equals("tacz") || modId.equals("ic_ip")) {
                 Flashback.LOGGER.debug("[Flashback] Saving {} custom payload to replay: {}", modId, cp.getIdentifier());
                 writer.startAction(ActionGamePacket.INSTANCE);
                 var buf = writer.friendlyByteBuf();
