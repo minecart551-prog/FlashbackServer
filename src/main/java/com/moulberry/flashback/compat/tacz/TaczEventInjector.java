@@ -25,6 +25,9 @@ public class TaczEventInjector {
     private static Method taczGetGunDisplay;
     private static Method taczGetAnimationStateMachine;
     private static Method taczStateMachineTrigger;
+    private static Method taczStateMachineIsInitialized;
+    private static Method taczStateMachineSetContext;
+    private static Method taczStateMachineInitialize;
     private static Method taczGetGunIndex;
     private static Class<?> taczGunDataClass;
 
@@ -54,10 +57,13 @@ public class TaczEventInjector {
 
             Class<?> stateMachine = Class.forName("com.tacz.guns.api.client.animation.statemachine.AnimationStateMachine");
             taczStateMachineTrigger = stateMachine.getMethod("trigger", String.class);
+            taczStateMachineIsInitialized = stateMachine.getMethod("isInitialized");
+            taczStateMachineSetContext = stateMachine.getMethod("setContext", Class.forName("com.tacz.guns.api.client.animation.statemachine.AnimationStateContext"));
+            taczStateMachineInitialize = stateMachine.getMethod("initialize");
 
             taczPresent = true;
         } catch (Exception e) {
-            LOGGER.debug("TACZ not present (animation reflection failed): {}", e.toString());
+            LOGGER.warn("TACZ not present (animation reflection failed): {}", e.toString());
             taczPresent = false;
         }
 
@@ -66,7 +72,7 @@ public class TaczEventInjector {
             taczGetGunIndex = taczTimelessApi.getMethod("getClientGunIndex", ResourceLocation.class);
             taczGunDataClass = Class.forName("com.tacz.guns.resource.pojo.data.gun.GunData");
         } catch (Exception e) {
-            LOGGER.debug("TACZ not present (sound reflection failed): {}", e.toString());
+            LOGGER.warn("TACZ not present (sound reflection failed): {}", e.toString());
         }
     }
 
@@ -80,6 +86,7 @@ public class TaczEventInjector {
         if (!taczPresent || buf == null) return;
 
         String path = id.getPath();
+        LOGGER.info("TaczEventInjector: received packet '{}'", path);
 
         // Handle aim state packet
         if (path.equals("s2c_gun_aim")) {
@@ -98,12 +105,16 @@ public class TaczEventInjector {
             gunItem = readGunItemForEvent(buf, path);
             buf.resetReaderIndex();
         } catch (Exception e) {
-            LOGGER.debug("TaczEventInjector: failed to read packet '{}': {}", path, e.toString());
+            LOGGER.warn("TaczEventInjector: failed to read packet '{}': {}", path, e.toString());
             return;
         }
 
-        if (gunItem == null || gunItem.isEmpty()) return;
+        if (gunItem == null || gunItem.isEmpty()) {
+            LOGGER.warn("TaczEventInjector: gunItem is empty for '{}' (entityId={})", path, entityId);
+            return;
+        }
 
+        LOGGER.info("TaczEventInjector: processing '{}' entityId={} gun={}", path, entityId, gunItem);
         triggerAnimation(gunItem, animInput);
 
         LivingEntity listener = resolveListener(entityId);
@@ -146,12 +157,12 @@ public class TaczEventInjector {
                         aimProgressField.setFloat(dataHolder, state ? 1.0f : 0.0f);
                         aimOldProgressField.set(null, state ? 1.0f : 0.0f);
                     } catch (Exception e) {
-                        LOGGER.debug("TaczEventInjector: failed to apply aim state in tick: {}", e.toString());
+                        LOGGER.warn("TaczEventInjector: failed to apply aim state in tick: {}", e.toString());
                     }
                 });
             }
         } catch (Exception e) {
-            LOGGER.debug("TaczEventInjector: failed to handle aim event: {}", e.toString());
+            LOGGER.warn("TaczEventInjector: failed to handle aim event: {}", e.toString());
         }
     }
 
@@ -174,7 +185,7 @@ public class TaczEventInjector {
             aimOldProgressField.setAccessible(true);
             aimFieldsResolved = true;
         } catch (Exception e) {
-            LOGGER.debug("TaczEventInjector: failed to resolve aim fields: {}", e.toString());
+            LOGGER.warn("TaczEventInjector: failed to resolve aim fields: {}", e.toString());
         }
     }
 
@@ -199,11 +210,15 @@ public class TaczEventInjector {
 
     private static ItemStack readGunItemForEvent(FriendlyByteBuf buf, String path) {
         return switch (path) {
-            case "s2c_gundraw", "s2c_gun_shoot", "s2c_gun_reload", "s2c_gun_melee",
-                 "s2c_gunfire_select", "s2c_gunfire" -> {
-                buf.readVarInt();
-                yield buf.readItem();
+            // s2c_gundraw has TWO ItemStacks after entityId: previousGunItem + currentGunItem
+            // We skip the previousGunItem and return the currentGunItem
+            case "s2c_gundraw" -> {
+                buf.readItem(); // skip previousGunItem
+                yield buf.readItem(); // return currentGunItem
             }
+            // All other gun events have: entityId (already consumed) + single ItemStack
+            case "s2c_gun_shoot", "s2c_gun_reload", "s2c_gun_melee",
+                 "s2c_gunfire_select", "s2c_gunfire" -> buf.readItem();
             default -> ItemStack.EMPTY;
         };
     }
@@ -221,9 +236,50 @@ public class TaczEventInjector {
             Object stateMachine = taczGetAnimationStateMachine.invoke(display);
             if (stateMachine == null) return;
 
+            // Auto-initialize the state machine if it hasn't been initialized yet
+            // (packets may arrive before the first render initializes it)
+            if (taczStateMachineIsInitialized != null && !(boolean) taczStateMachineIsInitialized.invoke(stateMachine)) {
+                ensureStateMachineInitialized(stateMachine, gunItem);
+            }
+
             taczStateMachineTrigger.invoke(stateMachine, animInput);
         } catch (Exception e) {
-            LOGGER.debug("TaczEventInjector: failed to trigger animation '{}': {}", animInput, e.toString());
+            LOGGER.warn("TaczEventInjector: failed to trigger animation '{}': {}", animInput, e.toString());
+        }
+    }
+
+    private static void ensureStateMachineInitialized(Object stateMachine, ItemStack gunItem) {
+        try {
+            if (taczStateMachineSetContext == null || taczStateMachineInitialize == null) return;
+
+            net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+            net.minecraft.world.entity.player.Player player = mc.player;
+            if (player == null) return;
+
+            // Create GunAnimationStateContext via reflection
+            Class<?> contextClass = Class.forName("com.tacz.guns.client.animation.statemachine.GunAnimationStateContext");
+            Object context = contextClass.getDeclaredConstructor().newInstance();
+            if (context == null) return;
+
+            // Set fields: currentGunItem, partialTicks
+            try {
+                java.lang.reflect.Field gunItemField = contextClass.getField("currentGunItem");
+                gunItemField.set(context, gunItem);
+            } catch (NoSuchFieldException e) {
+                // Try alternate names
+                for (java.lang.reflect.Field f : contextClass.getDeclaredFields()) {
+                    if (f.getType() == ItemStack.class) {
+                        f.setAccessible(true);
+                        f.set(context, gunItem);
+                        break;
+                    }
+                }
+            }
+
+            taczStateMachineSetContext.invoke(stateMachine, context);
+            taczStateMachineInitialize.invoke(stateMachine);
+        } catch (Exception e) {
+            LOGGER.warn("TaczEventInjector: failed to auto-init state machine: {}", e.toString());
         }
     }
 
@@ -232,12 +288,18 @@ public class TaczEventInjector {
         if (gunItem == null || gunItem.isEmpty() || player == null) return;
 
         try {
+            // getGunId is an instance method on IGun — get the IGun from the item
             Class<?> taczIGunClass = Class.forName("com.tacz.guns.api.item.IGun");
             Method iGunGetGunId = taczIGunClass.getMethod("getGunId", ItemStack.class);
-            ResourceLocation gunId = (ResourceLocation) iGunGetGunId.invoke(null, gunItem);
+            Object iGunInstance = taczIGunClass.getMethod("getIGunOrNull", ItemStack.class).invoke(null, gunItem);
+            if (iGunInstance == null) return;
+            ResourceLocation gunId = (ResourceLocation) iGunGetGunId.invoke(iGunInstance, gunItem);
             if (gunId == null) return;
 
-            Object gunIndex = taczGetGunIndex.invoke(null, gunId);
+            // getClientGunIndex returns Optional<ClientGunIndex> — unwrap it
+            Object gunIndexOpt = taczGetGunIndex.invoke(null, gunId);
+            if (gunIndexOpt == null) return;
+            Object gunIndex = gunIndexOpt.getClass().getMethod("orElse", Object.class).invoke(gunIndexOpt, (Object) null);
             if (gunIndex == null) return;
 
             Class<?> soundPlayManager = Class.forName("com.tacz.guns.client.sound.SoundPlayManager");
@@ -280,7 +342,7 @@ public class TaczEventInjector {
                 }
             }
         } catch (Exception e) {
-            LOGGER.debug("TaczEventInjector: failed to play sound for event '{}': {}", path, e.toString());
+            LOGGER.warn("TaczEventInjector: failed to play sound for event '{}': {}", path, e.toString());
         }
     }
 }
