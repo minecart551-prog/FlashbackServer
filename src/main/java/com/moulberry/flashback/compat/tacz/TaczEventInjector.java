@@ -29,6 +29,9 @@ public class TaczEventInjector {
     private static Method taczStateMachineSetContext;
     private static Method taczStateMachineInitialize;
     private static Method taczGetGunIndex;
+    private static Method taczGetCommonGunIndex;
+    private static Method taczGetGunData;
+    private static Method taczGetAimTime;
     private static Class<?> taczGunDataClass;
 
     // Cached handles for aim state tick callback (resolved once, reused every tick)
@@ -37,11 +40,21 @@ public class TaczEventInjector {
     private static Field aimIsAimingField;
     private static Field aimProgressField;
     private static Field aimOldProgressField;
+    private static Field aimTimestampField;
     private static boolean aimFieldsResolved = false;
 
     // Aim state + once-only tick registration
     private static volatile Boolean pendingAimState = null;
     private static boolean tickCallbackRegistered = false;
+    private static long lastAimChangeTimestamp = -1;
+    private static boolean lastAimState = false;
+
+    // Cached handles for reading synced entity data (IS_AIMING_KEY / AIMING_PROGRESS_KEY)
+    private static Object syncedEntityDataInstance;
+    private static Method syncedEntityDataGet;
+    private static Object isAimingKeyInstance;
+    private static Object aimingProgressKeyInstance;
+    private static boolean syncedAimKeysResolved = false;
 
     private TaczEventInjector() {}
 
@@ -70,7 +83,11 @@ public class TaczEventInjector {
         try {
             Class<?> taczTimelessApi = Class.forName("com.tacz.guns.api.TimelessAPI");
             taczGetGunIndex = taczTimelessApi.getMethod("getClientGunIndex", ResourceLocation.class);
+            taczGetCommonGunIndex = taczTimelessApi.getMethod("getCommonGunIndex", ResourceLocation.class);
+            Class<?> commonGunIndexClass = Class.forName("com.tacz.guns.resource.index.CommonGunIndex");
+            taczGetGunData = commonGunIndexClass.getMethod("getGunData");
             taczGunDataClass = Class.forName("com.tacz.guns.resource.pojo.data.gun.GunData");
+            taczGetAimTime = taczGunDataClass.getMethod("getAimTime");
         } catch (Exception e) {
             LOGGER.warn("TACZ not present (sound reflection failed): {}", e.toString());
         }
@@ -86,7 +103,7 @@ public class TaczEventInjector {
         if (!taczPresent || buf == null) return;
 
         String path = id.getPath();
-        LOGGER.info("TaczEventInjector: received packet '{}'", path);
+        LOGGER.debug("TaczEventInjector: received packet '{}'", path);
 
         // Handle aim state packet
         if (path.equals("s2c_gun_aim")) {
@@ -94,8 +111,20 @@ public class TaczEventInjector {
             return;
         }
 
+        // For all other TACZ packets, ensure the aim tick callback is registered.
+        // This handles the case where aim state arrives via s2c_update_entity_data
+        // instead of a dedicated s2c_gun_aim packet.
+        registerAimTickCallbackIfNeeded();
+
+        // Skip s2c_gundraw animation here — forward() sends this packet to the client
+        // where TACZ's own ServerMessageGunDraw handler fires GunDrawEvent, which
+        // triggers the draw animation via PlayerAnimator. Triggering it here too causes
+        // a double-draw. Sound is NOT handled by TACZ's GunDrawEvent, so we still
+        // play it below.
+
         String animInput = mapToAnimationInput(path);
-        if (animInput == null) return;
+        boolean skipAnimation = path.equals("s2c_gundraw");
+        if (animInput == null && !skipAnimation) return;
 
         int entityId;
         ItemStack gunItem;
@@ -114,8 +143,10 @@ public class TaczEventInjector {
             return;
         }
 
-        LOGGER.info("TaczEventInjector: processing '{}' entityId={} gun={}", path, entityId, gunItem);
-        triggerAnimation(gunItem, animInput);
+        LOGGER.debug("TaczEventInjector: processing '{}' entityId={} gun={}", path, entityId, gunItem);
+        if (!skipAnimation) {
+            triggerAnimation(gunItem, animInput);
+        }
 
         LivingEntity listener = resolveListener(entityId);
         if (listener != null) {
@@ -134,36 +165,66 @@ public class TaczEventInjector {
             boolean isAiming = buf.readBoolean();
             buf.resetReaderIndex();
             pendingAimState = isAiming;
-
-            if (!tickCallbackRegistered) {
-                tickCallbackRegistered = true;
-                ClientTickEvents.END_CLIENT_TICK.register(client -> {
-                    Boolean state = pendingAimState;
-                    if (state == null || client.player == null) return;
-
-                    try {
-                        if (!aimFieldsResolved) {
-                            resolveAimFields(client);
-                        }
-                        if (aimIsAimingField == null || aimProgressField == null || aimOldProgressField == null) return;
-
-                        Object gunOperator = aimFromLocalPlayer.invoke(null, client.player);
-                        if (gunOperator == null) return;
-
-                        Object dataHolder = aimGetDataHolder.invoke(gunOperator);
-                        if (dataHolder == null) return;
-
-                        aimIsAimingField.setBoolean(dataHolder, state);
-                        aimProgressField.setFloat(dataHolder, state ? 1.0f : 0.0f);
-                        aimOldProgressField.set(null, state ? 1.0f : 0.0f);
-                    } catch (Exception e) {
-                        LOGGER.warn("TaczEventInjector: failed to apply aim state in tick: {}", e.toString());
-                    }
-                });
-            }
+            lastAimChangeTimestamp = System.currentTimeMillis();
+            lastAimState = isAiming;
+            registerAimTickCallbackIfNeeded();
         } catch (Exception e) {
             LOGGER.warn("TaczEventInjector: failed to handle aim event: {}", e.toString());
         }
+    }
+
+    /**
+     * Register the aim tick callback if not already registered.
+     * During replay, there is no s2c_gun_aim packet (aim is C2S only).
+     * Instead, the aim state is synced via s2c_update_entity_data packets
+     * which update TACZ's SyncedEntityData. We read from there each tick
+     * and bridge to LocalPlayerDataHolder for first-person rendering.
+     */
+    private static void registerAimTickCallbackIfNeeded() {
+        if (tickCallbackRegistered) return;
+        tickCallbackRegistered = true;
+
+        try {
+            resolveSyncedAimKeys();
+        } catch (Exception e) {
+            LOGGER.warn("TaczEventInjector: failed to resolve synced aim keys: {}", e.toString());
+        }
+
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (client.player == null) return;
+
+            try {
+                if (!aimFieldsResolved) {
+                    resolveAimFields(client);
+                }
+                if (aimIsAimingField == null) return;
+
+                // Read aim state from the SPECTATING player entity (not the local player),
+                // because during replay the local player holds nothing — the spectating player
+                // is the one whose aim state is synced via s2c_update_entity_data packets.
+                net.minecraft.world.entity.player.Player viewPlayer = Flashback.getSpectatingPlayer();
+                if (viewPlayer == null) return;
+
+                Boolean syncedAiming = readSyncedAimState(viewPlayer);
+
+                Boolean state = pendingAimState;
+                if (syncedAiming != null) {
+                    state = syncedAiming;
+                }
+
+                if (state == null) return;
+
+                Object gunOperator = aimFromLocalPlayer.invoke(null, client.player);
+                if (gunOperator == null) return;
+
+                Object dataHolder = aimGetDataHolder.invoke(gunOperator);
+                if (dataHolder == null) return;
+
+                aimIsAimingField.setBoolean(dataHolder, state);
+            } catch (Exception e) {
+                LOGGER.warn("TaczEventInjector: failed to apply aim state in tick: {}", e.toString());
+            }
+        });
     }
 
     /** Resolve reflection handles ONCE and cache them for all subsequent ticks. */
@@ -183,10 +244,53 @@ public class TaczEventInjector {
             aimOldProgressField = Class.forName("com.tacz.guns.client.gameplay.LocalPlayerDataHolder")
                     .getDeclaredField("oldAimingProgress");
             aimOldProgressField.setAccessible(true);
+            aimTimestampField = dataHolder.getClass().getField("clientAimingTimestamp");
             aimFieldsResolved = true;
         } catch (Exception e) {
             LOGGER.warn("TaczEventInjector: failed to resolve aim fields: {}", e.toString());
         }
+    }
+
+    /** Resolve TACZ synced entity data keys for IS_AIMING and AIMING_PROGRESS. */
+    private static void resolveSyncedAimKeys() {
+        try {
+            Class<?> syncedEntityDataClass = Class.forName("com.tacz.guns.entity.sync.core.SyncedEntityData");
+            syncedEntityDataInstance = syncedEntityDataClass.getMethod("instance").invoke(null);
+            // Find get(Entity, SyncedDataKey) by name+parameter count to avoid
+            // Class.forName("net.minecraft.world.entity.Entity") which fails
+            // in production Fabric due to intermediary class names.
+            for (java.lang.reflect.Method m : syncedEntityDataClass.getMethods()) {
+                if (m.getName().equals("get") && m.getParameterCount() == 2) {
+                    syncedEntityDataGet = m;
+                    break;
+                }
+            }
+            if (syncedEntityDataGet == null) {
+                throw new NoSuchMethodException("SyncedEntityData.get(Entity, SyncedDataKey)");
+            }
+
+            Class<?> modSyncedEntityDataClass = Class.forName("com.tacz.guns.entity.sync.ModSyncedEntityData");
+            isAimingKeyInstance = modSyncedEntityDataClass.getField("IS_AIMING_KEY").get(null);
+            aimingProgressKeyInstance = modSyncedEntityDataClass.getField("AIMING_PROGRESS_KEY").get(null);
+            syncedAimKeysResolved = true;
+        } catch (Exception e) {
+            LOGGER.warn("TaczEventInjector: failed to resolve synced aim keys: {}", e.toString());
+        }
+    }
+
+    /**
+     * Read the current aim state from TACZ's synced entity data.
+     * Returns true if the entity is aiming, false if not, null if unavailable.
+     */
+    private static Boolean readSyncedAimState(net.minecraft.world.entity.LivingEntity entity) {
+        if (!syncedAimKeysResolved || syncedEntityDataInstance == null || isAimingKeyInstance == null) return null;
+        try {
+            Object result = syncedEntityDataGet.invoke(syncedEntityDataInstance, entity, isAimingKeyInstance);
+            if (result instanceof Boolean b) return b;
+        } catch (Exception e) {
+            LOGGER.warn("TaczEventInjector: failed to read synced aim state: {}", e.toString());
+        }
+        return null;
     }
 
     private static LivingEntity resolveListener(int entityId) {
@@ -303,7 +407,7 @@ public class TaczEventInjector {
             if (gunIndex == null) return;
 
             Class<?> soundPlayManager = Class.forName("com.tacz.guns.client.sound.SoundPlayManager");
-            Class<?> livingEntityClass = Class.forName("net.minecraft.world.entity.LivingEntity");
+            Class<?> livingEntityClass = LivingEntity.class;
             Class<?> gunDisplayInstanceClass = Class.forName("com.tacz.guns.client.resource.GunDisplayInstance");
 
             Object displayOpt2 = taczGetGunDisplay.invoke(null, gunItem);

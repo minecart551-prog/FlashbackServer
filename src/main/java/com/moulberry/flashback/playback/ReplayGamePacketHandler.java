@@ -1513,6 +1513,14 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
             com.moulberry.flashback.compat.tacz.TaczEventInjector.handleTaczEvent(
                 id, clientboundCustomPayloadPacket.getData());
         }
+        // Skip forwarding s2c_gundraw to the client — TACZ's client-side ServerMessageGunDraw
+        // handler fires GunDrawEvent which causes unwanted side effects (sound re-play,
+        // third-person animation triggers on the spectating player entity).
+        // The draw animation is handled by FirstPersonRenderEvent.tryInit and sound by
+        // TaczEventInjector.handleTaczEvent above.
+        if (id.getPath().equals("s2c_gundraw")) {
+            return;
+        }
     }
         
         forward(clientboundCustomPayloadPacket);
