@@ -56,6 +56,17 @@ public class TaczEventInjector {
     private static Object aimingProgressKeyInstance;
     private static boolean syncedAimKeysResolved = false;
 
+    // Cached handles for positioning state reset on weapon switch
+    private static boolean positioningFieldsResolved = false;
+    private static Field posCurrentViewIndex;
+    private static Field posOldViewIndex;
+    private static Field posOldAimingViewMatrix;
+    private static Field posSwitchViewDynamics;
+    private static Field posShootTimeStamp;
+    private static Field posJumpingSwayProgress;
+    private static Field posJumpingTimeStamp;
+    private static Field posLastOnGround;
+
     private TaczEventInjector() {}
 
     public static void init() {
@@ -146,6 +157,11 @@ public class TaczEventInjector {
         LOGGER.debug("TaczEventInjector: processing '{}' entityId={} gun={}", path, entityId, gunItem);
         if (!skipAnimation) {
             triggerAnimation(gunItem, animInput);
+        }
+
+        // Reset positioning state on weapon switch to prevent stale scope/sway interpolation
+        if (path.equals("s2c_gundraw")) {
+            resetPositioningState();
         }
 
         LivingEntity listener = resolveListener(entityId);
@@ -447,6 +463,40 @@ public class TaczEventInjector {
             }
         } catch (Exception e) {
             LOGGER.warn("TaczEventInjector: failed to play sound for event '{}': {}", path, e.toString());
+        }
+    }
+
+    private static void resetPositioningState() {
+        resolvePositioningFields();
+        try {
+            if (posCurrentViewIndex != null) posCurrentViewIndex.set(null, 0);
+            if (posOldViewIndex != null) posOldViewIndex.set(null, 0);
+            if (posOldAimingViewMatrix != null) posOldAimingViewMatrix.set(null, 0.0f);
+            if (posSwitchViewDynamics != null) posSwitchViewDynamics.set(null, 0.0f);
+            if (posShootTimeStamp != null) posShootTimeStamp.set(null, 0L);
+            if (posJumpingSwayProgress != null) posJumpingSwayProgress.set(null, 0.0f);
+            if (posJumpingTimeStamp != null) posJumpingTimeStamp.set(null, 0L);
+            if (posLastOnGround != null) posLastOnGround.set(null, false);
+        } catch (Exception e) {
+            LOGGER.warn("TaczEventInjector: failed to reset positioning state: {}", e.toString());
+        }
+    }
+
+    private static void resolvePositioningFields() {
+        if (positioningFieldsResolved) return;
+        positioningFieldsResolved = true;
+        try {
+            Class<?> fprgClass = Class.forName("com.tacz.guns.client.event.FirstPersonRenderGunEvent");
+            posCurrentViewIndex = fprgClass.getDeclaredField("currentViewIndex");
+            posOldViewIndex = fprgClass.getDeclaredField("oldViewIndex");
+            posOldAimingViewMatrix = fprgClass.getDeclaredField("oldAimingViewMatrix");
+            posSwitchViewDynamics = fprgClass.getDeclaredField("SWITCH_VIEW_DYNAMICS");
+            posShootTimeStamp = fprgClass.getDeclaredField("shootTimeStamp");
+            posJumpingSwayProgress = fprgClass.getDeclaredField("jumpingSwayProgress");
+            posJumpingTimeStamp = fprgClass.getDeclaredField("jumpingTimeStamp");
+            posLastOnGround = fprgClass.getDeclaredField("lastOnGround");
+        } catch (Exception e) {
+            LOGGER.warn("TaczEventInjector: failed to resolve positioning fields: {}", e.toString());
         }
     }
 }

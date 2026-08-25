@@ -64,6 +64,8 @@
     "compat.iris.MixinIrisHandRenderer",
     "compat.iris.MixinIrisSystemTimeUniforms",
     "compat.simplebedrockmodel.MixinFirstPersonRenderHandler",
+    "compat.tacz.MixinTaczRightHandRender",
+    "compat.tacz.MixinTaczLeftHandRender",
     "compat.replaymod.MixinReplayModRecording",
     "compat.voice_chat.MixinVoiceChatALSpeakerBase",
     "compat.voice_chat.MixinVoiceChatClientVoicechat",

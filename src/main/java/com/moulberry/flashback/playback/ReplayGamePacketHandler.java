@@ -483,7 +483,9 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
 
             for (ReplayPlayer replayViewer : this.replayServer.getReplayViewers()) {
                 if (Objects.equals(replayViewer.lastFirstPersonDataUUID, player.getUUID())) {
-                    replayViewer.lastFirstPersonHotbarItems[slot] = itemStack.copy();
+                    if (slot >= 0 && slot < replayViewer.lastFirstPersonHotbarItems.length) {
+                        replayViewer.lastFirstPersonHotbarItems[slot] = itemStack.copy();
+                    }
                     ServerPlayNetworking.send(replayViewer, new FlashbackRemoteSetSlot(player.getId(), slot, itemStack.copy()));
                 }
             }
@@ -1519,6 +1521,9 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
         // The draw animation is handled by FirstPersonRenderEvent.tryInit and sound by
         // TaczEventInjector.handleTaczEvent above.
         if (id.getPath().equals("s2c_gundraw")) {
+            // Consume any remaining bytes so the replay reader doesn't crash
+            clientboundCustomPayloadPacket.getData().skipBytes(
+                clientboundCustomPayloadPacket.getData().readableBytes());
             return;
         }
     }
