@@ -92,8 +92,7 @@ public abstract class MixinGameRenderer {
                     player.walkDist += horizontalDist;
 
                     player.oBob = player.bob;
-                    float targetBob = horizontalDist * 0.5f;
-                    player.bob += (targetBob - player.bob) * 0.4f;
+                    player.bob += horizontalDist * 0.6f;
                 }
                 this.flashback$lastCameraPos = currentPos;
             }
