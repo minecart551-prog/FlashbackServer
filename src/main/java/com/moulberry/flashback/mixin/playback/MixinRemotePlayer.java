@@ -7,7 +7,6 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.player.RemotePlayer;
 import net.minecraft.util.Mth;
-import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -28,8 +27,6 @@ public class MixinRemotePlayer extends AbstractClientPlayer implements RemotePla
     private float yBobO = 0.0f;
     @Unique
     private float yBob = 0.0f;
-    @Unique
-    private Vec3 lastPosition = null;
 
     private MixinRemotePlayer(ClientLevel clientLevel, GameProfile gameProfile) {
         super(clientLevel, gameProfile);
@@ -47,22 +44,6 @@ public class MixinRemotePlayer extends AbstractClientPlayer implements RemotePla
             this.xBob += Mth.wrapDegrees(this.getXRot() - this.xBob) * 0.5f;
             this.yBobO = yBob;
             this.yBob += Mth.wrapDegrees(this.getYRot() - this.yBob) * 0.5f;
-
-            if (this.lastPosition != null) {
-                double dx = this.lastPosition.x - this.position().x;
-                double dz = this.lastPosition.z - this.position().z;
-                float horizontalDist = Mth.sqrt((float) (dx * dx + dz * dz)) * 0.6f;
-                this.walkDistO = this.walkDist;
-                this.walkDist += horizontalDist;
-
-                this.oBob = this.bob;
-                float targetBob = horizontalDist * 0.5f;
-                this.bob += (targetBob - this.bob) * 0.4f;
-            } else {
-                this.oBob = this.bob;
-                this.bob *= 0.4f;
-            }
-            this.lastPosition = this.position();
         }
     }
 

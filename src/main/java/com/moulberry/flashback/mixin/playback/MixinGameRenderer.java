@@ -39,9 +39,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(GameRenderer.class)
 public abstract class MixinGameRenderer {
 
-    @Unique
-    private Vec3 flashback$lastCameraPos = null;
-
     @WrapOperation(method = "render", at=@At(value = "FIELD", target = "Lnet/minecraft/client/Options;pauseOnLostFocus:Z"))
     public boolean getPauseOnLostFocus(Options instance, Operation<Boolean> original) {
         if (ReplayUI.isActive() || Flashback.EXPORT_JOB != null) {
@@ -76,27 +73,6 @@ public abstract class MixinGameRenderer {
         }
 
         AccurateEntityPositionHandler.apply(Minecraft.getInstance().level, partialTick);
-
-        if (Flashback.isInReplay() && player != null) {
-            Entity cameraEntity = this.minecraft.getCameraEntity();
-            if (cameraEntity == null) {
-                cameraEntity = player;
-            }
-
-            if (cameraEntity == player) {
-                Vec3 currentPos = player.position();
-                if (this.flashback$lastCameraPos != null) {
-                    double dx = currentPos.x - this.flashback$lastCameraPos.x;
-                    double dz = currentPos.z - this.flashback$lastCameraPos.z;
-                    float horizontalDist = (float) Math.sqrt(dx * dx + dz * dz);
-                    player.walkDist += horizontalDist;
-
-                    player.oBob = player.bob;
-                    player.bob += horizontalDist * 0.6f;
-                }
-                this.flashback$lastCameraPos = currentPos;
-            }
-        }
     }
 
     @Inject(method = "render", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;clear(IZ)V", remap = false, ordinal = 0), cancellable = true)

@@ -241,10 +241,6 @@ public class TaczEventInjector {
                     resetPositioningState();
                 }
 
-                // Periodically settle dynamics when aim has been inactive for a while.
-                // The SecondOrderDynamics background thread evolves py/pyd between game frames,
-                // causing drift during replay where inputs are discontinuous.
-                long now = System.currentTimeMillis();
                 if (!aimFieldsResolved) return;
                 Boolean syncedAiming = readSyncedAimState(viewPlayer);
 
@@ -269,6 +265,11 @@ public class TaczEventInjector {
                 if (!state) {
                     aimProgressField.setFloat(dataHolder, 0f);
                     aimOldProgressField.set(null, 0f);
+
+                    // Also force the dynamics target to 0 so the SecondOrderDynamics
+                    // converges to 0 instead of lingering at the old aim value.
+                    resolvePositioningFields();
+                    setDynamicsTarget(posAimingDynamics, 0f);
                 }
             } catch (Exception e) {
                 LOGGER.warn("TaczEventInjector: failed to apply aim state in tick: {}", e.toString());
@@ -529,6 +530,17 @@ public class TaczEventInjector {
             dynTarget.set(dynamics, 0f);
         } catch (Exception e) {
             // Silently ignore - field may not exist in this TACZ version
+        }
+    }
+
+    private static void setDynamicsTarget(Field dynamicsField, float target) {
+        if (!dynamicsFieldsResolved || dynamicsField == null) return;
+        try {
+            Object dynamics = dynamicsField.get(null);
+            if (dynamics == null) return;
+            dynTarget.set(dynamics, target);
+        } catch (Exception e) {
+            // Silently ignore
         }
     }
 
