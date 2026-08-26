@@ -6,19 +6,22 @@ import com.moulberry.flashback.Flashback;
 import com.moulberry.mixinconstraints.annotations.IfModLoaded;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.player.PlayerRenderer;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemDisplayContext;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.joml.Matrix3f;
+import org.joml.Matrix4f;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 
 @IfModLoaded("tacz")
 @Pseudo
@@ -53,13 +56,9 @@ public class MixinTaczLeftHandRender {
 
     @Inject(method = "render", at = @At("HEAD"), cancellable = true)
     private void flashback$render(PoseStack poseStack, com.mojang.blaze3d.vertex.VertexConsumer vertexBuffer,
-            net.minecraft.world.item.ItemDisplayContext transformType, int light, int overlay, CallbackInfo ci) {
+            ItemDisplayContext transformType, int light, int overlay, CallbackInfo ci) {
         if (!Flashback.isInReplay()) return;
         if (!transformType.firstPerson()) return;
-
-        ci.cancel();
-
-        poseStack.mulPose(Axis.ZP.rotationDegrees(180f));
 
         try {
             Field f = this.getClass().getDeclaredField("bedrockGunModel");
@@ -79,13 +78,15 @@ public class MixinTaczLeftHandRender {
             }
             if (delegateMethod == null) return;
 
-            Class<?> funcType = delegateMethod.getParameterTypes()[0];
+            ci.cancel();
+            poseStack.mulPose(Axis.ZP.rotationDegrees(180f));
+            Matrix3f normal = new Matrix3f(poseStack.last().normal());
+            Matrix4f pose = new Matrix4f(poseStack.last().pose());
             AbstractClientPlayer player = flashback$getTargetPlayer();
-            org.joml.Matrix3f normal = new org.joml.Matrix3f(poseStack.last().normal());
-            org.joml.Matrix4f pose = new org.joml.Matrix4f(poseStack.last().pose());
             int finalLight = light;
 
-            Object proxy = Proxy.newProxyInstance(
+            Class<?> funcType = delegateMethod.getParameterTypes()[0];
+            Object proxy = java.lang.reflect.Proxy.newProxyInstance(
                 funcType.getClassLoader(),
                 new Class<?>[]{ funcType },
                 (p, method, args) -> {

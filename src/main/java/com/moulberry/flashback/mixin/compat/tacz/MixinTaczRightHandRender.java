@@ -10,20 +10,23 @@ import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.player.PlayerRenderer;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemDisplayContext;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.joml.Matrix3f;
+import org.joml.Matrix4f;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 
 /**
- * TACZ compatibility: makes first-person arm rendering use the spectating player
- * (AbstractClientPlayer) during Flashback replay.
+ * During replay, TACZ's RightHandRender calls renderFirstPersonArm(LocalPlayer,...).
+ * The view player is NOT a LocalPlayer, so it falls back to the empty-handed local player.
+ * This mixin intercepts and renders the arm using the spectating player instead.
  */
 @IfModLoaded("tacz")
 @Pseudo
@@ -56,62 +59,11 @@ public class MixinTaczRightHandRender {
         buffer.endBatch();
     }
 
-    @Unique
-    private static void flashback$delegateRenderAndArm(Object self, HumanoidArm arm) {
-        try {
-            Field f = self.getClass().getDeclaredField("bedrockGunModel");
-            f.setAccessible(true);
-            Object bedrockGunModel = f.get(self);
-            if (bedrockGunModel == null) return;
-
-            Method getRenderHand = bedrockGunModel.getClass().getMethod("getRenderHand");
-            if (!(boolean) getRenderHand.invoke(bedrockGunModel)) return;
-
-            // Get delegateRender method
-            Method delegateMethod = null;
-            for (Method m : bedrockGunModel.getClass().getMethods()) {
-                if (m.getName().equals("delegateRender") && m.getParameterCount() == 1) {
-                    delegateMethod = m;
-                    break;
-                }
-            }
-            if (delegateMethod == null) return;
-
-            Class<?> funcType = delegateMethod.getParameterTypes()[0];
-            AbstractClientPlayer player = flashback$getTargetPlayer();
-
-            // Create proxy for the IFunctionalRenderer SAM interface
-            Object proxy = Proxy.newProxyInstance(
-                funcType.getClassLoader(),
-                new Class<?>[]{ funcType },
-                (p, method, args) -> {
-                    // args: PoseStack, VertexConsumer, ItemDisplayContext, int, int
-                    if (args != null && args.length >= 5 && args[0] instanceof PoseStack poseStack) {
-                        int light = (int) args[3];
-                        PoseStack poseStack2 = new PoseStack();
-                        poseStack2.last().normal().mul(((com.mojang.blaze3d.vertex.PoseStack) args[0]).last().normal());
-                        poseStack2.last().pose().mul(((com.mojang.blaze3d.vertex.PoseStack) args[0]).last().pose());
-                        // Re-capture from original - actually we need the pre-transform matrices
-                        flashback$renderArm(player, arm, poseStack2, light);
-                    }
-                    return null;
-                }
-            );
-            delegateMethod.invoke(bedrockGunModel, proxy);
-        } catch (Exception e) {
-            // fallback: do nothing
-        }
-    }
-
     @Inject(method = "render", at = @At("HEAD"), cancellable = true)
     private void flashback$render(PoseStack poseStack, com.mojang.blaze3d.vertex.VertexConsumer vertexBuffer,
-            net.minecraft.world.item.ItemDisplayContext transformType, int light, int overlay, CallbackInfo ci) {
+            ItemDisplayContext transformType, int light, int overlay, CallbackInfo ci) {
         if (!Flashback.isInReplay()) return;
         if (!transformType.firstPerson()) return;
-
-        ci.cancel();
-
-        poseStack.mulPose(Axis.ZP.rotationDegrees(180f));
 
         try {
             Field f = this.getClass().getDeclaredField("bedrockGunModel");
@@ -122,7 +74,7 @@ public class MixinTaczRightHandRender {
             Method getRenderHand = bedrockGunModel.getClass().getMethod("getRenderHand");
             if (!(boolean) getRenderHand.invoke(bedrockGunModel)) return;
 
-            // Get delegateRender method
+            // Find delegateRender method
             Method delegateMethod = null;
             for (Method m : bedrockGunModel.getClass().getMethods()) {
                 if (m.getName().equals("delegateRender") && m.getParameterCount() == 1) {
@@ -132,13 +84,16 @@ public class MixinTaczRightHandRender {
             }
             if (delegateMethod == null) return;
 
-            Class<?> funcType = delegateMethod.getParameterTypes()[0];
+            // Mimic TACZ's own code exactly: mulPose 180, save matrices, delegate with fresh PoseStack
+            ci.cancel();
+            poseStack.mulPose(Axis.ZP.rotationDegrees(180f));
+            Matrix3f normal = new Matrix3f(poseStack.last().normal());
+            Matrix4f pose = new Matrix4f(poseStack.last().pose());
             AbstractClientPlayer player = flashback$getTargetPlayer();
-            org.joml.Matrix3f normal = new org.joml.Matrix3f(poseStack.last().normal());
-            org.joml.Matrix4f pose = new org.joml.Matrix4f(poseStack.last().pose());
             int finalLight = light;
 
-            Object proxy = Proxy.newProxyInstance(
+            Class<?> funcType = delegateMethod.getParameterTypes()[0];
+            Object proxy = java.lang.reflect.Proxy.newProxyInstance(
                 funcType.getClassLoader(),
                 new Class<?>[]{ funcType },
                 (p, method, args) -> {

@@ -49,6 +49,9 @@ public class TaczEventInjector {
     private static long lastAimChangeTimestamp = -1;
     private static boolean lastAimState = false;
 
+    // Track spectating player to detect player switches during replay
+    private static int lastSpectatingPlayerId = -1;
+
     // Cached handles for reading synced entity data (IS_AIMING_KEY / AIMING_PROGRESS_KEY)
     private static Object syncedEntityDataInstance;
     private static Method syncedEntityDataGet;
@@ -66,6 +69,16 @@ public class TaczEventInjector {
     private static Field posJumpingSwayProgress;
     private static Field posJumpingTimeStamp;
     private static Field posLastOnGround;
+    // SecondOrderDynamics internal state fields (for drift correction)
+    private static Field dynPy;
+    private static Field dynPyd;
+    private static Field dynPx;
+    private static Field dynTarget;
+    private static boolean dynamicsFieldsResolved = false;
+    // Static dynamics instances in FirstPersonRenderGunEvent
+    private static Field posAimingDynamics;
+    private static Field posRefitOpeningDynamics;
+    private static Field posJumpingDynamics;
 
     private TaczEventInjector() {}
 
@@ -221,6 +234,18 @@ public class TaczEventInjector {
                 net.minecraft.world.entity.player.Player viewPlayer = Flashback.getSpectatingPlayer();
                 if (viewPlayer == null) return;
 
+                // Reset positioning dynamics when spectating player changes (prevents drift)
+                int viewPlayerId = viewPlayer.getId();
+                if (viewPlayerId != lastSpectatingPlayerId) {
+                    lastSpectatingPlayerId = viewPlayerId;
+                    resetPositioningState();
+                }
+
+                // Periodically settle dynamics when aim has been inactive for a while.
+                // The SecondOrderDynamics background thread evolves py/pyd between game frames,
+                // causing drift during replay where inputs are discontinuous.
+                long now = System.currentTimeMillis();
+                if (!aimFieldsResolved) return;
                 Boolean syncedAiming = readSyncedAimState(viewPlayer);
 
                 Boolean state = pendingAimState;
@@ -237,6 +262,14 @@ public class TaczEventInjector {
                 if (dataHolder == null) return;
 
                 aimIsAimingField.setBoolean(dataHolder, state);
+
+                // During replay, TACZ's own tickAimingProgress() computes clientAimingProgress
+                // using System.currentTimeMillis() deltas which are unreliable in replay.
+                // When not aiming, force progress to 0 to prevent drift.
+                if (!state) {
+                    aimProgressField.setFloat(dataHolder, 0f);
+                    aimOldProgressField.set(null, 0f);
+                }
             } catch (Exception e) {
                 LOGGER.warn("TaczEventInjector: failed to apply aim state in tick: {}", e.toString());
             }
@@ -469,16 +502,58 @@ public class TaczEventInjector {
     private static void resetPositioningState() {
         resolvePositioningFields();
         try {
-            if (posCurrentViewIndex != null) posCurrentViewIndex.set(null, 0);
-            if (posOldViewIndex != null) posOldViewIndex.set(null, 0);
-            if (posOldAimingViewMatrix != null) posOldAimingViewMatrix.set(null, 0.0f);
-            if (posSwitchViewDynamics != null) posSwitchViewDynamics.set(null, 0.0f);
-            if (posShootTimeStamp != null) posShootTimeStamp.set(null, 0L);
-            if (posJumpingSwayProgress != null) posJumpingSwayProgress.set(null, 0.0f);
-            if (posJumpingTimeStamp != null) posJumpingTimeStamp.set(null, 0L);
+            if (posCurrentViewIndex != null) posCurrentViewIndex.set(null, -1);
+            if (posOldViewIndex != null) posOldViewIndex.set(null, 0f);
+            if (posOldAimingViewMatrix != null) posOldAimingViewMatrix.set(null, null);
+            if (posSwitchViewDynamics != null) posSwitchViewDynamics.set(null, null);
+            if (posShootTimeStamp != null) posShootTimeStamp.set(null, -1L);
+            if (posJumpingSwayProgress != null) posJumpingSwayProgress.set(null, 0f);
+            if (posJumpingTimeStamp != null) posJumpingTimeStamp.set(null, -1L);
             if (posLastOnGround != null) posLastOnGround.set(null, false);
+            resetDynamicsField(posAimingDynamics);
+            resetDynamicsField(posRefitOpeningDynamics);
+            resetDynamicsField(posJumpingDynamics);
         } catch (Exception e) {
             LOGGER.warn("TaczEventInjector: failed to reset positioning state: {}", e.toString());
+        }
+    }
+
+    private static void resetDynamicsField(Field dynamicsField) {
+        if (!dynamicsFieldsResolved || dynamicsField == null) return;
+        try {
+            Object dynamics = dynamicsField.get(null);
+            if (dynamics == null) return;
+            dynPy.set(dynamics, 0f);
+            dynPyd.set(dynamics, 0f);
+            dynPx.set(dynamics, 0f);
+            dynTarget.set(dynamics, 0f);
+        } catch (Exception e) {
+            // Silently ignore - field may not exist in this TACZ version
+        }
+    }
+
+    /**
+     * Lightly settle the aiming dynamics when aim has been inactive for a while.
+     * Unlike resetPositioningState() which resets everything (causing a snap),
+     * this just dampens the velocity to prevent slow drift.
+     */
+    private static void settleAimingDynamics() {
+        resolvePositioningFields();
+        if (!dynamicsFieldsResolved || posAimingDynamics == null) return;
+        try {
+            Object dynamics = posAimingDynamics.get(null);
+            if (dynamics == null) return;
+            float py = dynPy.getFloat(dynamics);
+            float pyd = dynPyd.getFloat(dynamics);
+            // If the dynamics are nearly settled (close to 0 with low velocity), snap to 0
+            if (Math.abs(py) < 0.05f && Math.abs(pyd) < 0.1f) {
+                dynPy.set(dynamics, 0f);
+                dynPyd.set(dynamics, 0f);
+                dynPx.set(dynamics, 0f);
+                dynTarget.set(dynamics, 0f);
+            }
+        } catch (Exception e) {
+            // Silently ignore
         }
     }
 
@@ -495,8 +570,28 @@ public class TaczEventInjector {
             posJumpingSwayProgress = fprgClass.getDeclaredField("jumpingSwayProgress");
             posJumpingTimeStamp = fprgClass.getDeclaredField("jumpingTimeStamp");
             posLastOnGround = fprgClass.getDeclaredField("lastOnGround");
+            posAimingDynamics = fprgClass.getDeclaredField("AIMING_DYNAMICS");
+            posAimingDynamics.setAccessible(true);
+            posRefitOpeningDynamics = fprgClass.getDeclaredField("REFIT_OPENING_DYNAMICS");
+            posRefitOpeningDynamics.setAccessible(true);
+            posJumpingDynamics = fprgClass.getDeclaredField("JUMPING_DYNAMICS");
+            posJumpingDynamics.setAccessible(true);
         } catch (Exception e) {
             LOGGER.warn("TaczEventInjector: failed to resolve positioning fields: {}", e.toString());
+        }
+        try {
+            Class<?> dynClass = Class.forName("com.tacz.guns.util.math.SecondOrderDynamics");
+            dynPy = dynClass.getDeclaredField("py");
+            dynPy.setAccessible(true);
+            dynPyd = dynClass.getDeclaredField("pyd");
+            dynPyd.setAccessible(true);
+            dynPx = dynClass.getDeclaredField("px");
+            dynPx.setAccessible(true);
+            dynTarget = dynClass.getDeclaredField("target");
+            dynTarget.setAccessible(true);
+            dynamicsFieldsResolved = true;
+        } catch (Exception e) {
+            LOGGER.warn("TaczEventInjector: failed to resolve SecondOrderDynamics fields: {}", e.toString());
         }
     }
 }
