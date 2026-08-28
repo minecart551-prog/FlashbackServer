@@ -32,11 +32,10 @@ public abstract class MixinCamera {
     @Shadow
     protected abstract void setPosition(double d, double e, double f);
 
-    @Shadow
-    private Entity entity;
+    @Inject(method = "setup", at = @At("RETURN"))
+    public void afterSetup(BlockGetter blockGetter, Entity entity, boolean bl, boolean bl2, float partialTick, CallbackInfo ci) {
+        if (!Flashback.isInReplay()) return;
 
-    @Inject(method = "setup", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Camera;setPosition(DDD)V", ordinal = 0, shift = At.Shift.AFTER))
-    public void afterSetPosition(BlockGetter blockGetter, Entity entity, boolean bl, boolean bl2, float partialTick, CallbackInfo ci)  {
         Vector2f rotation = AccurateEntityPositionHandler.getAccurateRotation(entity, partialTick);
         if (rotation != null) {
             this.setRotation(rotation.y, rotation.x);
@@ -46,7 +45,7 @@ public abstract class MixinCamera {
             double camY = position.y + Mth.lerp(partialTick, this.eyeHeightOld, this.eyeHeight);
 
             Player viewPlayer = Flashback.getSpectatingPlayer();
-            if (viewPlayer != null && this.entity == viewPlayer) {
+            if (viewPlayer != null && entity == viewPlayer) {
                 ItemStack mainHand = viewPlayer.getMainHandItem();
                 if (!mainHand.isEmpty() && mainHand.getItem().getClass().getName().contains("com.tacz.guns")) {
                     ViewBobState.BobState state = ViewBobState.getState(viewPlayer.getId());
@@ -59,8 +58,8 @@ public abstract class MixinCamera {
                             float sinPhase = Mth.sin(phase * (float) Math.PI);
                             float cosPhase = Mth.cos(phase * (float) Math.PI);
 
-                            float bobX = sinPhase * bob * 0.5F;
-                            float bobY = -Math.abs(cosPhase * bob);
+                            float bobX = 0;
+                            float bobY = -Math.abs(cosPhase * bob) * 0.25F;
 
                             this.setPosition(
                                 position.x + bobX,
@@ -69,8 +68,8 @@ public abstract class MixinCamera {
                             );
 
                             if (rotation != null) {
-                                float yaw = rotation.y + sinPhase * bob * 3.0F;
-                                float pitch = rotation.x + Math.abs(cosPhase * bob - 0.2F) * bob * 5.0F;
+                                float yaw = rotation.y + sinPhase * bob * 2.0F;
+                                float pitch = rotation.x + Math.abs(cosPhase * bob - 0.2F) * bob * 3.0F;
                                 this.setRotation(yaw, pitch);
                             }
                             return;

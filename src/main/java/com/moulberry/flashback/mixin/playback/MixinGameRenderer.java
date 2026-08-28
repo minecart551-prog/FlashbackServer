@@ -96,34 +96,47 @@ public abstract class MixinGameRenderer {
     }
 
     // Wrap bobView to apply spectating player's walking bob at the GameRenderer scope.
-    // For TACZ guns, we skip this and let MixinGunItemRendererWrapper apply bobView
-    // AFTER TACZ's gun positioning, because TACZ's mulPoseMatrix(transformMatrix)
+    // For TACZ guns, we skip this because TACZ's mulPoseMatrix(transformMatrix)
     // reorients the coordinate system, absorbing any pre-existing translate into
-    // the gun's local space where it becomes negligible.
+    // the gun's local space where it becomes negligible. Camera-level bob in
+    // MixinCamera handles TACZ gun bob instead.
     @WrapOperation(method = "renderItemInHand", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/GameRenderer;bobView(Lcom/mojang/blaze3d/vertex/PoseStack;F)V"))
     public void renderItemInHand_bobView(GameRenderer instance, PoseStack poseStack, float partialTick, Operation<Void> original) {
         Player viewPlayer = Flashback.getSpectatingPlayer();
         if (viewPlayer != null) {
             ItemStack mainHand = viewPlayer.getMainHandItem();
+            if (mainHand.isEmpty()) {
+                // RemotePlayer inventory not synced — check via KeepingItemRenderer
+                mainHand = flashback$getKeepingItem();
+            }
             if (!mainHand.isEmpty() && mainHand.getItem().getClass().getName().contains("com.tacz.guns")) {
+                // For TACZ guns: apply our custom bob (no horizontal, slight vertical + rotation)
+                // Use local player's ViewBobState since the spectated player has no movement data
+                ViewBobState.BobState state = ViewBobState.getState(viewPlayer.getId());
+                if (state == null) {
+                    LocalPlayer localPlayer = Minecraft.getInstance().player;
+                    if (localPlayer != null) {
+                        state = ViewBobState.getState(localPlayer.getId());
+                    }
+                }
+                if (state == null) return;
+
+                float f = state.walkDist - state.walkDistO;
+                float phase = -(state.walkDist + f * partialTick);
+                float bob = Mth.lerp(partialTick, state.oBob, state.bob);
+
+                if (Math.abs(bob) < 0.001f) return;
+
+                float sinPhase = Mth.sin(phase * (float) Math.PI);
+                float cosPhase = Mth.cos(phase * (float) Math.PI);
+
+                float bobY = -Math.abs(cosPhase * bob) * 0.25F;
+
+                poseStack.translate(0, bobY, 0.0F);
+                poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 2.0F));
+                poseStack.mulPose(Axis.XP.rotationDegrees(Math.abs(Mth.cos(phase * (float) Math.PI - 0.2F) * bob) * 3.0F));
                 return;
             }
-
-            ViewBobState.BobState state = ViewBobState.getState(viewPlayer.getId());
-            if (state == null) return;
-
-            float f = state.walkDist - state.walkDistO;
-            float phase = -(state.walkDist + f * partialTick);
-            float bob = Mth.lerp(partialTick, state.oBob, state.bob);
-
-            if (Math.abs(bob) < 0.001f) return;
-
-            float sinPhase = Mth.sin(phase * (float) Math.PI);
-            float cosPhase = Mth.cos(phase * (float) Math.PI);
-
-            poseStack.translate(sinPhase * bob * 0.5F, -Math.abs(cosPhase * bob), 0.0F);
-            poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 3.0F));
-            poseStack.mulPose(Axis.XP.rotationDegrees(Math.abs(Mth.cos(phase * (float) Math.PI - 0.2F) * bob) * 5.0F));
         } else {
             original.call(instance, poseStack, partialTick);
         }
@@ -187,6 +200,27 @@ public abstract class MixinGameRenderer {
                 int fov = this.minecraft.options.fov().get().intValue();
                 cir.setReturnValue((double) fov);
             }
+        }
+    }
+
+    @Unique
+    private static java.lang.reflect.Method flashback$getCurrentItemMethod;
+    @Unique
+    private static java.lang.reflect.Method flashback$getRendererMethod;
+
+    @Unique
+    private static ItemStack flashback$getKeepingItem() {
+        try {
+            if (flashback$getRendererMethod == null) {
+                Class<?> kirClass = Class.forName("com.tacz.guns.api.client.other.KeepingItemRenderer");
+                flashback$getRendererMethod = kirClass.getMethod("getRenderer");
+                flashback$getCurrentItemMethod = kirClass.getMethod("getCurrentItem");
+            }
+            Object renderer = flashback$getRendererMethod.invoke(null);
+            if (renderer == null) return ItemStack.EMPTY;
+            return (ItemStack) flashback$getCurrentItemMethod.invoke(renderer);
+        } catch (Exception e) {
+            return ItemStack.EMPTY;
         }
     }
 

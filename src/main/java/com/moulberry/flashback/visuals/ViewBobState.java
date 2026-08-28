@@ -24,6 +24,7 @@ public class ViewBobState {
         public float walkDistO = 0f;
         public float bob = 0f;
         public float oBob = 0f;
+        public float rawDist = 0f;
         private double lastX = Double.NaN;
         private double lastZ = Double.NaN;
     }
@@ -52,6 +53,7 @@ public class ViewBobState {
                 double dz = z - state.lastZ;
                 float dist = (float) Math.sqrt(dx * dx + dz * dz);
 
+                state.rawDist = dist;
                 state.walkDistO = state.walkDist;
                 state.walkDist += dist * 0.6f;
 

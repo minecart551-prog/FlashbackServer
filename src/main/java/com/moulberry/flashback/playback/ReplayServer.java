@@ -546,11 +546,6 @@ public class ReplayServer extends IntegratedServer {
             return;
         }
 
-        // Log ALL custom payload packets
-        if (packet instanceof ClientboundCustomPayloadPacket cp) {
-            Flashback.LOGGER.info("[Flashback Playback] Replaying CustomPayload: namespace={} path={} packetId={} class={}", cp.getIdentifier().getNamespace(), cp.getIdentifier().getPath(), packetId, packet.getClass().getSimpleName());
-        }
-        
         if (packet instanceof ClientboundCustomPayloadPacket cp && cp.getIdentifier().equals(new ResourceLocation("porting_lib", "extra_entity_spawn_data"))) {
             this.gamePacketHandler.handleExtraDataPacket(cp);
         } else {

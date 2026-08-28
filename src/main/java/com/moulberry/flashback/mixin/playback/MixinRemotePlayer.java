@@ -73,6 +73,13 @@ public class MixinRemotePlayer extends AbstractClientPlayer implements RemotePla
                 double dz = this.position().z - this.flashback$lastTickPos.z;
                 float dist = (float) Math.sqrt(dx * dx + dz * dz);
 
+                // Vanilla: oWalkDist = walkDist happens at the start of Entity.aiStep(),
+                // but RemotePlayer.aiStep() doesn't call super, so oWalkDist is never set.
+                // TACZ's GunAnimationStateContext.getWalkDist() reads:
+                //   walkDist + (walkDist - walkDistO) * partialTicks
+                // Without updating walkDistO, the interpolation breaks.
+                this.walkDistO = this.walkDist;
+
                 // walkDist accumulates horizontal movement for the view bob phase.
                 // Vanilla: walkDist += horizontalDistance * 0.6f (in Entity.aiStep)
                 this.walkDist += dist * 0.6f;
