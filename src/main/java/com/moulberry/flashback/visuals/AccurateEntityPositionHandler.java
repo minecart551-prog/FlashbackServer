@@ -23,6 +23,9 @@ public class AccurateEntityPositionHandler {
     private static Int2ObjectMap<List<PositionAndAngle>> pendingData = null;
 
     public static void tick() {
+        if (pendingData != null) {
+            ViewBobState.tick(pendingData);
+        }
         currentData = pendingData;
         pendingData = null;
     }

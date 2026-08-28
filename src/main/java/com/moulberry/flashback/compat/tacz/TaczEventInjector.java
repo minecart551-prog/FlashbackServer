@@ -575,13 +575,21 @@ public class TaczEventInjector {
         try {
             Class<?> fprgClass = Class.forName("com.tacz.guns.client.event.FirstPersonRenderGunEvent");
             posCurrentViewIndex = fprgClass.getDeclaredField("currentViewIndex");
+            posCurrentViewIndex.setAccessible(true);
             posOldViewIndex = fprgClass.getDeclaredField("oldViewIndex");
+            posOldViewIndex.setAccessible(true);
             posOldAimingViewMatrix = fprgClass.getDeclaredField("oldAimingViewMatrix");
+            posOldAimingViewMatrix.setAccessible(true);
             posSwitchViewDynamics = fprgClass.getDeclaredField("SWITCH_VIEW_DYNAMICS");
+            posSwitchViewDynamics.setAccessible(true);
             posShootTimeStamp = fprgClass.getDeclaredField("shootTimeStamp");
+            posShootTimeStamp.setAccessible(true);
             posJumpingSwayProgress = fprgClass.getDeclaredField("jumpingSwayProgress");
+            posJumpingSwayProgress.setAccessible(true);
             posJumpingTimeStamp = fprgClass.getDeclaredField("jumpingTimeStamp");
+            posJumpingTimeStamp.setAccessible(true);
             posLastOnGround = fprgClass.getDeclaredField("lastOnGround");
+            posLastOnGround.setAccessible(true);
             posAimingDynamics = fprgClass.getDeclaredField("AIMING_DYNAMICS");
             posAimingDynamics.setAccessible(true);
             posRefitOpeningDynamics = fprgClass.getDeclaredField("REFIT_OPENING_DYNAMICS");

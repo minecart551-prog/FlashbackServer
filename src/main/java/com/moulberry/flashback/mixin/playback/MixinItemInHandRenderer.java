@@ -93,6 +93,12 @@ public abstract class MixinItemInHandRenderer implements ItemInHandRendererExt {
         if (clientPlayer instanceof RemotePlayerExt remotePlayerExt) {
             float xBob = remotePlayerExt.flashback$getXBob(partialTick);
             float yBob = remotePlayerExt.flashback$getYBob(partialTick);
+
+            // Camera-level bobView is now handled by MixinGameRenderer.renderItemInHand_bobView
+            // which wraps the bobView call at the GameRenderer scope, ensuring it applies
+            // even when TACZ cancels it for guns.
+
+            // Rotation bob: view tilt from looking around
             poseStack.mulPose(Axis.XP.rotationDegrees(Mth.wrapDegrees(clientPlayer.getViewXRot(partialTick) - xBob) * 0.1f));
             poseStack.mulPose(Axis.YP.rotationDegrees(Mth.wrapDegrees(clientPlayer.getViewYRot(partialTick) - yBob) * 0.1f));
         }

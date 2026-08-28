@@ -65,6 +65,7 @@
     "compat.iris.MixinIrisSystemTimeUniforms",
     "compat.simplebedrockmodel.MixinFirstPersonRenderHandler",
     "compat.tacz.MixinGunAnimationStateContext",
+    "compat.tacz.MixinFirstPersonRenderEvent",
     "compat.tacz.MixinTaczRightHandRender",
     "compat.tacz.MixinTaczLeftHandRender",
     "compat.replaymod.MixinReplayModRecording",

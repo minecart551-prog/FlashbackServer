@@ -11,6 +11,7 @@ import com.moulberry.flashback.ext.ItemInHandRendererExt;
 import com.moulberry.flashback.ext.MinecraftExt;
 import com.moulberry.flashback.visuals.AccurateEntityPositionHandler;
 import com.moulberry.flashback.visuals.CameraRotation;
+import com.moulberry.flashback.visuals.ViewBobState;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
@@ -20,11 +21,15 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.ItemInHandRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.Vec3;
+import com.mojang.math.Axis;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.spongepowered.asm.mixin.Final;
@@ -88,6 +93,40 @@ public abstract class MixinGameRenderer {
             return GameType.SURVIVAL;
         }
         return original.call(instance);
+    }
+
+    // Wrap bobView to apply spectating player's walking bob at the GameRenderer scope.
+    // For TACZ guns, we skip this and let MixinGunItemRendererWrapper apply bobView
+    // AFTER TACZ's gun positioning, because TACZ's mulPoseMatrix(transformMatrix)
+    // reorients the coordinate system, absorbing any pre-existing translate into
+    // the gun's local space where it becomes negligible.
+    @WrapOperation(method = "renderItemInHand", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/GameRenderer;bobView(Lcom/mojang/blaze3d/vertex/PoseStack;F)V"))
+    public void renderItemInHand_bobView(GameRenderer instance, PoseStack poseStack, float partialTick, Operation<Void> original) {
+        Player viewPlayer = Flashback.getSpectatingPlayer();
+        if (viewPlayer != null) {
+            ItemStack mainHand = viewPlayer.getMainHandItem();
+            if (!mainHand.isEmpty() && mainHand.getItem().getClass().getName().contains("com.tacz.guns")) {
+                return;
+            }
+
+            ViewBobState.BobState state = ViewBobState.getState(viewPlayer.getId());
+            if (state == null) return;
+
+            float f = state.walkDist - state.walkDistO;
+            float phase = -(state.walkDist + f * partialTick);
+            float bob = Mth.lerp(partialTick, state.oBob, state.bob);
+
+            if (Math.abs(bob) < 0.001f) return;
+
+            float sinPhase = Mth.sin(phase * (float) Math.PI);
+            float cosPhase = Mth.cos(phase * (float) Math.PI);
+
+            poseStack.translate(sinPhase * bob * 0.5F, -Math.abs(cosPhase * bob), 0.0F);
+            poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 3.0F));
+            poseStack.mulPose(Axis.XP.rotationDegrees(Math.abs(Mth.cos(phase * (float) Math.PI - 0.2F) * bob) * 5.0F));
+        } else {
+            original.call(instance, poseStack, partialTick);
+        }
     }
 
     @WrapOperation(method = "renderItemInHand", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/ItemInHandRenderer;renderHandsWithItems(FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;Lnet/minecraft/client/player/LocalPlayer;I)V"))
