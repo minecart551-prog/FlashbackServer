@@ -97,7 +97,7 @@ public abstract class MixinCamera {
 
                             if (rotation != null) {
                                 float yaw = rotation.y;
-                                float pitch = rotation.x + sinPhase * bob * 10.0F;
+                                float pitch = rotation.x + sinPhase * bob * 2.0F;
                                 this.setRotation(yaw, pitch);
                             }
                             return;

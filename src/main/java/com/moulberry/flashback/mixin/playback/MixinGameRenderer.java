@@ -130,9 +130,11 @@ public abstract class MixinGameRenderer {
                 float sinPhase = Mth.sin(phase * (float) Math.PI);
                 float cosPhase = Mth.cos(phase * (float) Math.PI);
 
-                float bobY = -Math.abs(cosPhase * bob) * 0.5F;
+                float bobY = -Math.abs(cosPhase * bob) * 0.25F;
 
                 poseStack.translate(0, bobY, 0.0F);
+                poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 2.0F));
+                poseStack.mulPose(Axis.XP.rotationDegrees(Math.abs(Mth.cos(phase * (float) Math.PI - 0.2F) * bob) * 3.0F));
                 return;
             }
         } else {
@@ -197,7 +199,7 @@ public abstract class MixinGameRenderer {
         if (Math.abs(bob) < 0.001f) return;
 
         float sinPhase = Mth.sin(phase * (float) Math.PI);
-        poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 10.0F));
+        poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 2.0F));
     }
 
     @Inject(method = "tryTakeScreenshotIfNeeded", at = @At("HEAD"), cancellable = true)
