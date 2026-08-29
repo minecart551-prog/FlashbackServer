@@ -13,6 +13,7 @@ import org.joml.Vector2f;
 import org.joml.Vector3d;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -32,6 +33,27 @@ public abstract class MixinCamera {
     @Shadow
     protected abstract void setPosition(double d, double e, double f);
 
+    @Unique
+    private static java.lang.reflect.Method flashback$getCurrentItemMethod;
+    @Unique
+    private static java.lang.reflect.Method flashback$getRendererMethod;
+
+    @Unique
+    private static ItemStack flashback$getKeepingItem() {
+        try {
+            if (flashback$getRendererMethod == null) {
+                Class<?> kirClass = Class.forName("com.tacz.guns.api.client.other.KeepingItemRenderer");
+                flashback$getRendererMethod = kirClass.getMethod("getRenderer");
+                flashback$getCurrentItemMethod = kirClass.getMethod("getCurrentItem");
+            }
+            Object renderer = flashback$getRendererMethod.invoke(null);
+            if (renderer == null) return ItemStack.EMPTY;
+            return (ItemStack) flashback$getCurrentItemMethod.invoke(renderer);
+        } catch (Exception e) {
+            return ItemStack.EMPTY;
+        }
+    }
+
     @Inject(method = "setup", at = @At("RETURN"))
     public void afterSetup(BlockGetter blockGetter, Entity entity, boolean bl, boolean bl2, float partialTick, CallbackInfo ci) {
         if (!Flashback.isInReplay()) return;
@@ -47,8 +69,17 @@ public abstract class MixinCamera {
             Player viewPlayer = Flashback.getSpectatingPlayer();
             if (viewPlayer != null && entity == viewPlayer) {
                 ItemStack mainHand = viewPlayer.getMainHandItem();
+                if (mainHand.isEmpty()) {
+                    mainHand = flashback$getKeepingItem();
+                }
                 if (!mainHand.isEmpty() && mainHand.getItem().getClass().getName().contains("com.tacz.guns")) {
                     ViewBobState.BobState state = ViewBobState.getState(viewPlayer.getId());
+                    if (state == null) {
+                        net.minecraft.client.player.LocalPlayer localPlayer = net.minecraft.client.Minecraft.getInstance().player;
+                        if (localPlayer != null) {
+                            state = ViewBobState.getState(localPlayer.getId());
+                        }
+                    }
                     if (state != null) {
                         float f = state.walkDist - state.walkDistO;
                         float phase = -(state.walkDist + f * partialTick);
@@ -58,18 +89,15 @@ public abstract class MixinCamera {
                             float sinPhase = Mth.sin(phase * (float) Math.PI);
                             float cosPhase = Mth.cos(phase * (float) Math.PI);
 
-                            float bobX = 0;
-                            float bobY = -Math.abs(cosPhase * bob) * 0.25F;
-
                             this.setPosition(
-                                position.x + bobX,
-                                camY + bobY,
+                                position.x,
+                                camY,
                                 position.z
                             );
 
                             if (rotation != null) {
-                                float yaw = rotation.y + sinPhase * bob * 2.0F;
-                                float pitch = rotation.x + Math.abs(cosPhase * bob - 0.2F) * bob * 3.0F;
+                                float yaw = rotation.y;
+                                float pitch = rotation.x + sinPhase * bob * 10.0F;
                                 this.setRotation(yaw, pitch);
                             }
                             return;

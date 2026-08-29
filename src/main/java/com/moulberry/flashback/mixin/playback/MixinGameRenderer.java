@@ -130,11 +130,9 @@ public abstract class MixinGameRenderer {
                 float sinPhase = Mth.sin(phase * (float) Math.PI);
                 float cosPhase = Mth.cos(phase * (float) Math.PI);
 
-                float bobY = -Math.abs(cosPhase * bob) * 0.25F;
+                float bobY = -Math.abs(cosPhase * bob) * 0.5F;
 
                 poseStack.translate(0, bobY, 0.0F);
-                poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 2.0F));
-                poseStack.mulPose(Axis.XP.rotationDegrees(Math.abs(Mth.cos(phase * (float) Math.PI - 0.2F) * bob) * 3.0F));
                 return;
             }
         } else {
@@ -172,11 +170,34 @@ public abstract class MixinGameRenderer {
 
     @Inject(method = "renderLevel", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Camera;setup(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/world/entity/Entity;ZZF)V", shift = At.Shift.AFTER))
     public void renderLevel(float f, long l, PoseStack poseStack, CallbackInfo ci) {
-        // TODO astavie: this is horrible and you should feel bad
-//        Camera instance = this.mainCamera;
-//        var rotation = CameraRotation.modifyViewQuaternion(instance.rotation());
-//        var angles = rotation.getEulerAnglesYXZ(new Vector3f());
-//        instance.setRotation(-angles.y / 0.017453292F, angles.x / 0.017453292F);
+        if (!Flashback.isInReplay()) return;
+
+        Player viewPlayer = Flashback.getSpectatingPlayer();
+        if (viewPlayer == null) return;
+
+        ItemStack mainHand = viewPlayer.getMainHandItem();
+        if (mainHand.isEmpty()) {
+            mainHand = flashback$getKeepingItem();
+        }
+        if (mainHand.isEmpty() || !mainHand.getItem().getClass().getName().contains("com.tacz.guns")) return;
+
+        ViewBobState.BobState state = ViewBobState.getState(viewPlayer.getId());
+        if (state == null) {
+            LocalPlayer localPlayer = Minecraft.getInstance().player;
+            if (localPlayer != null) {
+                state = ViewBobState.getState(localPlayer.getId());
+            }
+        }
+        if (state == null) return;
+
+        float walkDelta = state.walkDist - state.walkDistO;
+        float phase = -(state.walkDist + walkDelta * f);
+        float bob = Mth.lerp(f, state.oBob, state.bob);
+
+        if (Math.abs(bob) < 0.001f) return;
+
+        float sinPhase = Mth.sin(phase * (float) Math.PI);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 10.0F));
     }
 
     @Inject(method = "tryTakeScreenshotIfNeeded", at = @At("HEAD"), cancellable = true)
