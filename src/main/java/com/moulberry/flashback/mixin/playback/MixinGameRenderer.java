@@ -126,9 +126,10 @@ public abstract class MixinGameRenderer {
                 float sinPhase = Mth.sin(phase * (float) Math.PI);
                 float cosPhase = Mth.cos(phase * (float) Math.PI);
 
-                float bobY = -Math.abs(cosPhase * bob) * 0.25F;
+                float bobY = -Math.abs(cosPhase * bob) * 0.25F * 0.5F;
 
                 poseStack.translate(0, bobY, 0.0F);
+                poseStack.mulPose(Axis.YP.rotationDegrees(sinPhase * bob * 0.5F));
                 poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 2.0F));
                 poseStack.mulPose(Axis.XP.rotationDegrees(Math.abs(Mth.cos(phase * (float) Math.PI - 0.2F) * bob) * 3.0F));
                 return;
