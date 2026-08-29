@@ -19,6 +19,9 @@ import java.util.List;
 
 public class AccurateEntityPositionHandler {
 
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("flashback-accurate-pos");
+    private static int applyDebugCounter = 0;
+
     private static Int2ObjectMap<List<PositionAndAngle>> currentData = null;
     private static Int2ObjectMap<List<PositionAndAngle>> pendingData = null;
 
@@ -57,7 +60,7 @@ public class AccurateEntityPositionHandler {
                 float yaw = floorPosition.yaw() + Mth.wrapDegrees(ceilPosition.yaw() - floorPosition.yaw()) * partialAmount;
                 float pitch = floorPosition.pitch() + Mth.wrapDegrees(ceilPosition.pitch() - floorPosition.pitch()) * partialAmount;
 
-                return new Vector2f(Mth.wrapDegrees(pitch), Mth.wrapDegrees(yaw));
+                return new Vector2f(pitch, yaw);
             }
         }
         return null;
@@ -127,7 +130,7 @@ public class AccurateEntityPositionHandler {
                     float yaw = floorPosition.yaw() + Mth.wrapDegrees(ceilPosition.yaw() - floorPosition.yaw()) * partialAmount;
                     float pitch = floorPosition.pitch() + Mth.wrapDegrees(ceilPosition.pitch() - floorPosition.pitch()) * partialAmount;
 
-                    applyPosition(entity, x, y, z,  Mth.wrapDegrees(yaw), Mth.wrapDegrees(pitch));
+                    applyPosition(entity, x, y, z, yaw, pitch);
                 }
 
             }
@@ -135,9 +138,15 @@ public class AccurateEntityPositionHandler {
     }
 
     private static void applyPosition(Entity entity, double x, double y, double z, float yaw, float pitch) {
-        if (!entity.isPassenger() && Minecraft.getInstance().cameraEntity == entity && Minecraft.getInstance().options.getCameraType().isFirstPerson()) {
+        boolean isCameraEntity = Minecraft.getInstance().cameraEntity == entity;
+        boolean isFirstPerson = Minecraft.getInstance().options.getCameraType().isFirstPerson();
+
+        if (!entity.isPassenger() && isCameraEntity && isFirstPerson) {
             entity.moveTo(x, y, z, yaw, pitch);
         }
+
+        float yawBefore = entity.getYRot();
+        float pitchBefore = entity.getXRot();
 
         entity.setYRot(yaw);
         entity.setXRot(pitch);
@@ -147,6 +156,18 @@ public class AccurateEntityPositionHandler {
             livingEntity.yHeadRotO = livingEntity.yHeadRot;
             livingEntity.yRotO = livingEntity.getYRot();
             livingEntity.xRotO = livingEntity.getXRot();
+        }
+
+        if (isCameraEntity && ++applyDebugCounter % 30 == 0) {
+            net.minecraft.world.entity.player.Player spec = com.moulberry.flashback.Flashback.getSpectatingPlayer();
+            LOGGER.info("[APPLY-DBG] entity={}({}) isCam={} yaw={}->{} pitch={}->{} specYaw={} specPitch={} specId={}",
+                    entity.getClass().getSimpleName(), entity.getId(),
+                    isCameraEntity,
+                    String.format("%.2f", yawBefore), String.format("%.2f", yaw),
+                    String.format("%.2f", pitchBefore), String.format("%.2f", pitch),
+                    spec != null ? String.format("%.2f", spec.getYRot()) : "null",
+                    spec != null ? String.format("%.2f", spec.getXRot()) : "null",
+                    spec != null ? spec.getId() : -1);
         }
     }
 

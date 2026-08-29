@@ -80,6 +80,9 @@ public class TaczEventInjector {
     private static Field posRefitOpeningDynamics;
     private static Field posJumpingDynamics;
 
+    // Thread-safe queue for animation triggers: packet thread enqueues, render thread dequeues
+    private static final java.util.concurrent.ConcurrentLinkedQueue<Runnable> pendingRunnables = new java.util.concurrent.ConcurrentLinkedQueue<>();
+
     private TaczEventInjector() {}
 
     public static void init() {
@@ -122,12 +125,42 @@ public class TaczEventInjector {
         return taczPresent;
     }
 
+    private static int debugCounter = 0;
+
     public static void handleTaczEvent(ResourceLocation id, FriendlyByteBuf buf) {
         init();
         if (!taczPresent || buf == null) return;
 
         String path = id.getPath();
-        LOGGER.debug("TaczEventInjector: received packet '{}'", path);
+        if (debugCounter++ % 20 == 0) {
+            net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+            net.minecraft.world.entity.player.Player vp = Flashback.getSpectatingPlayer();
+            double ex = vp != null ? vp.getX() : 0;
+            double ey = vp != null ? vp.getY() : 0;
+            double ez = vp != null ? vp.getZ() : 0;
+            float xrot = vp != null ? vp.getXRot() : 0;
+            float yrot = vp != null ? vp.getYRot() : 0;
+            float xrotO = vp != null ? vp.xRotO : 0;
+            float yrotO = vp != null ? vp.yRotO : 0;
+            boolean empty = vp != null ? vp.getMainHandItem().isEmpty() : true;
+            String mainHand = vp != null ? vp.getMainHandItem().getItem().getClass().getSimpleName() : "null";
+            String keepItem = "unknown";
+            try {
+                Class<?> kirClass = Class.forName("com.tacz.guns.api.client.other.KeepingItemRenderer");
+                Object renderer = kirClass.getMethod("getRenderer").invoke(null);
+                if (renderer != null) {
+                    Object item = renderer.getClass().getMethod("getCurrentItem").invoke(renderer);
+                    keepItem = item != null ? ((net.minecraft.world.item.ItemStack) item).getItem().getClass().getSimpleName() : "empty";
+                } else { keepItem = "no_renderer"; }
+            } catch (Exception e) { keepItem = "err:" + e.getMessage(); }
+            LOGGER.info("[TACZ-DBG] packet={} entityPos=({},{},{}) xRot={} yRot={} xRotO={} yRotO={} mainHand={}({}) keepItem={} camEntity={} level={}",
+                    path, String.format("%.2f", ex), String.format("%.2f", ey), String.format("%.2f", ez),
+                    String.format("%.1f", xrot), String.format("%.1f", yrot),
+                    String.format("%.1f", xrotO), String.format("%.1f", yrotO),
+                    mainHand, empty, keepItem,
+                    mc.cameraEntity != null ? mc.cameraEntity.getId() : -1,
+                    mc.level != null);
+        }
 
         // Handle aim state packet
         if (path.equals("s2c_gun_aim")) {
@@ -222,6 +255,9 @@ public class TaczEventInjector {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.player == null) return;
 
+            // Process any queued runnables (animation triggers, etc.) on the render thread
+            processPendingRunnables();
+
             try {
                 if (!aimFieldsResolved) {
                     resolveAimFields(client);
@@ -244,12 +280,88 @@ public class TaczEventInjector {
                 if (!aimFieldsResolved) return;
                 Boolean syncedAiming = readSyncedAimState(viewPlayer);
 
+                // Read aim progress too for diagnostics
+                float syncedProgress = -1f;
+                if (syncedAimKeysResolved && syncedEntityDataInstance != null && aimingProgressKeyInstance != null) {
+                    try {
+                        Object pResult = syncedEntityDataGet.invoke(syncedEntityDataInstance, viewPlayer, aimingProgressKeyInstance);
+                        if (pResult instanceof Float f) syncedProgress = f;
+                        else if (pResult instanceof Double d) syncedProgress = d.floatValue();
+                        else if (pResult instanceof Byte b) syncedProgress = (b & 0xFF) / 255f;
+                        else if (pResult instanceof Short s) syncedProgress = (s & 0xFFFF) / 255f;
+                        else if (pResult instanceof Integer i) syncedProgress = i / 255f;
+                    } catch (Exception ignored) {}
+                }
+
+                // Read current dataHolder progress for diagnostics
+                float currentProgress = -1f;
+                boolean currentState = false;
+                try {
+                    Object gunOp = aimFromLocalPlayer.invoke(null, client.player);
+                    if (gunOp != null) {
+                        Object dh = aimGetDataHolder.invoke(gunOp);
+                        if (dh != null) {
+                            currentProgress = aimProgressField.getFloat(dh);
+                            currentState = aimIsAimingField.getBoolean(dh);
+                        }
+                    }
+                } catch (Exception ignored) {}
+
                 Boolean state = pendingAimState;
                 if (syncedAiming != null) {
                     state = syncedAiming;
                 }
 
                 if (state == null) return;
+
+                if (debugCounter++ % 20 == 0) {
+                    // Read dynamics state for diagnostics
+                    resolvePositioningFields();
+                    float aimDynPy = 0f, aimDynPyd = 0f, jumpDynPy = 0f, refitDynPy = 0f;
+                    float shootAge = -1f, jumpAge = -1f;
+                    float switchViewPy = 0f;
+                    try {
+                        if (dynamicsFieldsResolved) {
+                            if (posAimingDynamics != null) {
+                                Object dyn = posAimingDynamics.get(null);
+                                if (dyn != null) { aimDynPy = dynPy.getFloat(dyn); aimDynPyd = dynPyd.getFloat(dyn); }
+                            }
+                            if (posJumpingDynamics != null) {
+                                Object dyn = posJumpingDynamics.get(null);
+                                if (dyn != null) jumpDynPy = dynPy.getFloat(dyn);
+                            }
+                            if (posRefitOpeningDynamics != null) {
+                                Object dyn = posRefitOpeningDynamics.get(null);
+                                if (dyn != null) refitDynPy = dynPy.getFloat(dyn);
+                            }
+                            if (posSwitchViewDynamics != null) {
+                                Object dyn = posSwitchViewDynamics.get(null);
+                                if (dyn != null) switchViewPy = dynPy.getFloat(dyn);
+                            }
+                            long now = System.currentTimeMillis();
+                            if (posShootTimeStamp != null) {
+                                long ts = posShootTimeStamp.getLong(null);
+                                shootAge = ts > 0 ? (now - ts) / 1000f : -1f;
+                            }
+                            if (posJumpingTimeStamp != null) {
+                                long ts = posJumpingTimeStamp.getLong(null);
+                                jumpAge = ts > 0 ? (now - ts) / 1000f : -1f;
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    LOGGER.info("[TACZ-AIM] pending={} synced={} aim={}({}) progress={}(synced={}) aimDyn=({},{}) jumpDyn={} refitDyn={} switchDyn={} shootAge={}s jumpAge={}s gameTick={}",
+                            pendingAimState, syncedAiming,
+                            currentState, viewPlayer.getId(),
+                            String.format("%.3f", currentProgress),
+                            String.format("%.3f", syncedProgress),
+                            String.format("%.3f", aimDynPy), String.format("%.3f", aimDynPyd),
+                            String.format("%.3f", jumpDynPy),
+                            String.format("%.3f", refitDynPy),
+                            String.format("%.3f", switchViewPy),
+                            shootAge < 0 ? "none" : String.format("%.1f", shootAge),
+                            jumpAge < 0 ? "none" : String.format("%.1f", jumpAge),
+                            client.level != null ? client.level.getGameTime() : -1);
+                }
 
                 Object gunOperator = aimFromLocalPlayer.invoke(null, client.player);
                 if (gunOperator == null) return;
@@ -378,6 +490,28 @@ public class TaczEventInjector {
     }
 
     private static void triggerAnimation(ItemStack gunItem, String animInput) {
+        if (taczGetGunDisplay == null || taczStateMachineTrigger == null) return;
+        if (gunItem == null || gunItem.isEmpty()) return;
+
+        // Queue the trigger for execution on the render thread to avoid
+        // ConcurrentModificationException when DiscreteTrackArray is being iterated
+        // by animationStateMachine.update() on the render thread.
+        ItemStack itemCopy = gunItem.copy();
+        pendingRunnables.add(() -> doTriggerAnimation(itemCopy, animInput));
+    }
+
+    /**
+     * Process queued runnables on the render thread.
+     * Called from the client tick callback.
+     */
+    private static void processPendingRunnables() {
+        Runnable r;
+        while ((r = pendingRunnables.poll()) != null) {
+            try { r.run(); } catch (Exception e) { LOGGER.warn("TaczEventInjector: queued runnable failed: {}", e.toString()); }
+        }
+    }
+
+    private static void doTriggerAnimation(ItemStack gunItem, String animInput) {
         if (taczGetGunDisplay == null || taczStateMachineTrigger == null) return;
         if (gunItem == null || gunItem.isEmpty()) return;
 

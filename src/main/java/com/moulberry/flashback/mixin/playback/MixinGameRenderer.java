@@ -11,7 +11,9 @@ import com.moulberry.flashback.ext.ItemInHandRendererExt;
 import com.moulberry.flashback.ext.MinecraftExt;
 import com.moulberry.flashback.visuals.AccurateEntityPositionHandler;
 import com.moulberry.flashback.visuals.ViewBobState;
+import com.mojang.math.Axis;
 import net.minecraft.client.Camera;
+import net.minecraft.util.Mth;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
@@ -20,15 +22,12 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.ItemInHandRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.GameType;
-import net.minecraft.world.phys.Vec3;
-import com.mojang.math.Axis;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -92,18 +91,18 @@ public abstract class MixinGameRenderer {
         return original.call(instance);
     }
 
-    // Wrap bobView to apply spectating player's walking bob at the GameRenderer scope.
-    // For TACZ guns, we skip this because TACZ's mulPoseMatrix(transformMatrix)
-    // reorients the coordinate system, absorbing any pre-existing translate into
-    // the gun's local space where it becomes negligible. Camera-level bob in
-    // MixinCamera handles TACZ gun bob instead.
+    // Wrap bobView to prevent vanilla bob for TACZ guns during replay.
+    // During normal gameplay, TACZ cancels bobView via cancelItemInHandViewBobbing.
+    // We must do the same here — TACZ handles all gun positioning internally through
+    // its own renderFirstPerson/applyFirstPersonGunTransform pipeline. Adding any
+    // custom bob (translate, ZP roll, XP rotation) would conflict with TACZ's own
+    // transforms and cause the gun to shift left.
     @WrapOperation(method = "renderItemInHand", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/GameRenderer;bobView(Lcom/mojang/blaze3d/vertex/PoseStack;F)V"))
     public void renderItemInHand_bobView(GameRenderer instance, PoseStack poseStack, float partialTick, Operation<Void> original) {
         Player viewPlayer = Flashback.getSpectatingPlayer();
         if (viewPlayer != null) {
             ItemStack mainHand = viewPlayer.getMainHandItem();
             if (mainHand.isEmpty()) {
-                // RemotePlayer inventory not synced — check via KeepingItemRenderer
                 mainHand = flashback$getKeepingItem();
             }
             if (!mainHand.isEmpty() && mainHand.getItem().getClass().getName().contains("com.tacz.guns")) {
@@ -134,6 +133,7 @@ public abstract class MixinGameRenderer {
                 poseStack.mulPose(Axis.XP.rotationDegrees(Math.abs(Mth.cos(phase * (float) Math.PI - 0.2F) * bob) * 3.0F));
                 return;
             }
+            // Non-TACZ item held by spectating player — skip vanilla bob (no movement data)
         } else {
             original.call(instance, poseStack, partialTick);
         }

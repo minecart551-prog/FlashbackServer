@@ -48,10 +48,28 @@ public class MixinRemotePlayer extends AbstractClientPlayer implements RemotePla
             this.wasSwinging = this.swinging;
 
             // xBob/yBob: rotation bob (view tilt from looking around)
+            // Vanilla LocalPlayer.aiStep() uses: xBob += Mth.wrapDegrees(xRot - xBob) * 0.5f
+            // We don't use Mth.wrapDegrees because our yaw values from AccurateEntityPositionHandler
+            // can cross the ±180° boundary abruptly (replay interpolation), and wrapDegrees would
+            // push yBob the wrong way around the circle, trapping it on the wrong side.
+            // When the raw difference exceeds 180° (wrap-around), we snap immediately
+            // instead of interpolating, which prevents the large residual twitch.
             this.xBobO = this.xBob;
-            this.xBob += Mth.wrapDegrees(this.getXRot() - this.xBob) * 0.5f;
+            float xDelta = this.getXRot() - this.xBob;
+            if (Math.abs(xDelta) > 180f) {
+                this.xBobO = this.getXRot();
+                this.xBob = this.getXRot();
+            } else {
+                this.xBob += xDelta * 0.5f;
+            }
             this.yBobO = this.yBob;
-            this.yBob += Mth.wrapDegrees(this.getYRot() - this.yBob) * 0.5f;
+            float yDelta = this.getYRot() - this.yBob;
+            if (Math.abs(yDelta) > 180f) {
+                this.yBobO = this.getYRot();
+                this.yBob = this.getYRot();
+            } else {
+                this.yBob += yDelta * 0.5f;
+            }
 
             // walk phase bob: RemotePlayer.aiStep() does NOT call super.aiStep(),
             // so we must manually update oBob/bob using the vanilla formula.
@@ -67,6 +85,12 @@ public class MixinRemotePlayer extends AbstractClientPlayer implements RemotePla
     @Inject(method = "tick", at = @At("RETURN"))
     public void tick(CallbackInfo ci) {
         if (Flashback.isInReplay()) {
+            // Vanilla only updates xRotO/yRotO for LocalPlayer (via turn()).
+            // For RemotePlayer, these are never updated, causing getViewXRot(partialTick)
+            // to lerp from a stale value — making the gun point in the wrong direction.
+            this.xRotO = this.getXRot();
+            this.yRotO = this.getYRot();
+
             if (this.flashback$lastTickPos != null) {
                 double dx = this.position().x - this.flashback$lastTickPos.x;
                 double dy = this.position().y - this.flashback$lastTickPos.y;

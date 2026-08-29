@@ -90,18 +90,11 @@ public abstract class MixinItemInHandRenderer implements ItemInHandRendererExt {
         InteractionHand interactionHand = MoreObjects.firstNonNull(clientPlayer.swingingArm, InteractionHand.MAIN_HAND);
         float h = Mth.lerp(partialTick, clientPlayer.xRotO, clientPlayer.getXRot());
         int handRenderSelection = evaluateWhichHandsToRender(clientPlayer);
-        if (clientPlayer instanceof RemotePlayerExt remotePlayerExt) {
-            float xBob = remotePlayerExt.flashback$getXBob(partialTick);
-            float yBob = remotePlayerExt.flashback$getYBob(partialTick);
-
-            // Camera-level bobView is now handled by MixinGameRenderer.renderItemInHand_bobView
-            // which wraps the bobView call at the GameRenderer scope, ensuring it applies
-            // even when TACZ cancels it for guns.
-
-            // Rotation bob: view tilt from looking around
-            poseStack.mulPose(Axis.XP.rotationDegrees(Mth.wrapDegrees(clientPlayer.getViewXRot(partialTick) - xBob) * 0.1f));
-            poseStack.mulPose(Axis.YP.rotationDegrees(Mth.wrapDegrees(clientPlayer.getViewYRot(partialTick) - yBob) * 0.1f));
-        }
+        // NOTE: We intentionally do NOT apply rotation bob here.
+        // TACZ's GunItemRendererWrapper.renderFirstPerson() applies its own rotation bob
+        // (viewRot - bob) * -0.1 for both LocalPlayer and RemotePlayer. If we also apply it
+        // here, the rotations cancel each other out, making the gun not track the view.
+        // Camera-level bobView is handled by MixinGameRenderer.renderItemInHand_bobView.
 
         if ((handRenderSelection & RENDER_MAIN_HAND) != 0) {
             l = interactionHand == InteractionHand.MAIN_HAND ? g : 0.0f;

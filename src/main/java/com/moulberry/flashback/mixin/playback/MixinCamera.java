@@ -4,6 +4,8 @@ import com.moulberry.flashback.Flashback;
 import com.moulberry.flashback.visuals.AccurateEntityPositionHandler;
 import com.moulberry.flashback.visuals.ViewBobState;
 import net.minecraft.client.Camera;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
@@ -75,7 +77,7 @@ public abstract class MixinCamera {
                 if (!mainHand.isEmpty() && mainHand.getItem().getClass().getName().contains("com.tacz.guns")) {
                     ViewBobState.BobState state = ViewBobState.getState(viewPlayer.getId());
                     if (state == null) {
-                        net.minecraft.client.player.LocalPlayer localPlayer = net.minecraft.client.Minecraft.getInstance().player;
+                        LocalPlayer localPlayer = Minecraft.getInstance().player;
                         if (localPlayer != null) {
                             state = ViewBobState.getState(localPlayer.getId());
                         }
@@ -87,7 +89,6 @@ public abstract class MixinCamera {
 
                         if (Math.abs(bob) > 0.001f) {
                             float sinPhase = Mth.sin(phase * (float) Math.PI);
-                            float cosPhase = Mth.cos(phase * (float) Math.PI);
 
                             this.setPosition(
                                 position.x,
