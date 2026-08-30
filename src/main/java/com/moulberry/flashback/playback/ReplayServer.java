@@ -560,6 +560,12 @@ public class ReplayServer extends IntegratedServer {
                 Flashback.LOGGER.debug("Skipping unsupported packet: {}", packet.getClass().getSimpleName());
             }
         }
+
+        // Consume any remaining bytes so ReplayReader doesn't crash on unread data.
+        // Modded packets may not fully consume their buffer during deserialization.
+        if (friendlyByteBuf.readableBytes() > 0) {
+            friendlyByteBuf.skipBytes(friendlyByteBuf.readableBytes());
+        }
     }
 
     public void handleCreateLocalPlayer(FriendlyByteBuf friendlyByteBuf) {
