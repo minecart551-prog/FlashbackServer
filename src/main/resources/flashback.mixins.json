@@ -22,6 +22,7 @@
     "playback.MixinClientCommonPacketListenerImpl",
     "playback.MixinGameRenderer",
     "playback.MixinItemInHandRenderer",
+    "playback.MixinItemInHandLayer",
     "playback.MixinRemotePlayer",
     "playback.MixinMouseHandler",
     "playback.MixinClientLevel",

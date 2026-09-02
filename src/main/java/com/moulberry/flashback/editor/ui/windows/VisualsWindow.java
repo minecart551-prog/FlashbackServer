@@ -292,6 +292,19 @@ public class VisualsWindow {
                 }
             }
 
+            // View Bob
+            floatBuffer[0] = visuals.viewBobMultiplier;
+            if (ImGui.sliderFloat("View Bob", floatBuffer, 0.0f, 3.0f, "%.2f")) {
+                visuals.viewBobMultiplier = floatBuffer[0];
+                editorState.markDirty();
+            }
+
+            floatBuffer[0] = visuals.viewBobPitchFrequency;
+            if (ImGui.sliderFloat("Pitch Freq", floatBuffer, 0.1f, 3.0f, "%.2f")) {
+                visuals.viewBobPitchFrequency = floatBuffer[0];
+                editorState.markDirty();
+            }
+
             visuals.overrideWeatherMode = ImGuiHelper.enumCombo("Weather", visuals.overrideWeatherMode);
 
             ImGuiHelper.separatorWithText("Other");

@@ -85,7 +85,7 @@ public abstract class MixinGameRenderer {
 
     @WrapOperation(method = "renderItemInHand", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/multiplayer/MultiPlayerGameMode;getPlayerMode()Lnet/minecraft/world/level/GameType;"))
     public GameType getPlayerMode(MultiPlayerGameMode instance, Operation<GameType> original) {
-        if (Flashback.getSpectatingPlayer() != null) {
+        if (Flashback.getSpectatingPlayer() != null && this.minecraft.options.getCameraType().isFirstPerson()) {
             return GameType.SURVIVAL;
         }
         return original.call(instance);
@@ -99,15 +99,14 @@ public abstract class MixinGameRenderer {
     // transforms and cause the gun to shift left.
     @WrapOperation(method = "renderItemInHand", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/GameRenderer;bobView(Lcom/mojang/blaze3d/vertex/PoseStack;F)V"))
     public void renderItemInHand_bobView(GameRenderer instance, PoseStack poseStack, float partialTick, Operation<Void> original) {
+        if (!this.minecraft.options.getCameraType().isFirstPerson()) {
+            original.call(instance, poseStack, partialTick);
+            return;
+        }
         Player viewPlayer = Flashback.getSpectatingPlayer();
         if (viewPlayer != null) {
             ItemStack mainHand = viewPlayer.getMainHandItem();
-            if (mainHand.isEmpty()) {
-                mainHand = flashback$getKeepingItem();
-            }
             if (!mainHand.isEmpty() && mainHand.getItem().getClass().getName().contains("com.tacz.guns")) {
-                // For TACZ guns: apply our custom bob (no horizontal, slight vertical + rotation)
-                // Use local player's ViewBobState since the spectated player has no movement data
                 ViewBobState.BobState state = ViewBobState.getState(viewPlayer.getId());
                 if (state == null) {
                     LocalPlayer localPlayer = Minecraft.getInstance().player;
@@ -120,6 +119,11 @@ public abstract class MixinGameRenderer {
                 float f = state.walkDist - state.walkDistO;
                 float phase = -(state.walkDist + f * partialTick);
                 float bob = Mth.lerp(partialTick, state.oBob, state.bob);
+
+                EditorState editorState = EditorStateManager.getCurrent();
+                if (editorState != null) {
+                    bob *= editorState.replayVisuals.viewBobMultiplier;
+                }
 
                 if (Math.abs(bob) < 0.001f) return;
 
@@ -134,16 +138,14 @@ public abstract class MixinGameRenderer {
                 poseStack.mulPose(Axis.XP.rotationDegrees(Math.abs(Mth.cos(phase * (float) Math.PI - 0.2F) * bob) * 3.0F));
                 return;
             }
-            // Non-TACZ item held by spectating player — skip vanilla bob (no movement data)
-        } else {
-            original.call(instance, poseStack, partialTick);
         }
+        original.call(instance, poseStack, partialTick);
     }
 
     @WrapOperation(method = "renderItemInHand", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/ItemInHandRenderer;renderHandsWithItems(FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;Lnet/minecraft/client/player/LocalPlayer;I)V"))
     public void renderItemInHand_renderHandsWithItems(ItemInHandRenderer instance, float f, PoseStack poseStack, MultiBufferSource.BufferSource bufferSource, LocalPlayer localPlayer, int i, Operation<Void> original) {
         AbstractClientPlayer spectatingPlayer = Flashback.getSpectatingPlayer();
-        if (spectatingPlayer != null) {
+        if (spectatingPlayer != null && this.minecraft.options.getCameraType().isFirstPerson()) {
             Entity entity = this.minecraft.getCameraEntity() == null ? this.minecraft.player : this.minecraft.getCameraEntity();
             float frozenPartialTick = ((MinecraftExt)this.minecraft).flashback$getReplayTimer().manager.isEntityFrozen(entity) ? 1.0f : f;
             ((ItemInHandRendererExt)instance).flashback$renderHandsWithItems(frozenPartialTick, poseStack, bufferSource, spectatingPlayer, i);
@@ -171,15 +173,10 @@ public abstract class MixinGameRenderer {
     @Inject(method = "renderLevel", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Camera;setup(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/world/entity/Entity;ZZF)V", shift = At.Shift.AFTER))
     public void renderLevel(float f, long l, PoseStack poseStack, CallbackInfo ci) {
         if (!Flashback.isInReplay()) return;
+        if (!this.minecraft.options.getCameraType().isFirstPerson()) return;
 
         Player viewPlayer = Flashback.getSpectatingPlayer();
         if (viewPlayer == null) return;
-
-        ItemStack mainHand = viewPlayer.getMainHandItem();
-        if (mainHand.isEmpty()) {
-            mainHand = flashback$getKeepingItem();
-        }
-        if (mainHand.isEmpty() || !mainHand.getItem().getClass().getName().contains("com.tacz.guns")) return;
 
         ViewBobState.BobState state = ViewBobState.getState(viewPlayer.getId());
         if (state == null) {
@@ -194,10 +191,21 @@ public abstract class MixinGameRenderer {
         float phase = -(state.walkDist + walkDelta * f);
         float bob = Mth.lerp(f, state.oBob, state.bob);
 
+        EditorState editorState = EditorStateManager.getCurrent();
+        if (editorState != null) {
+            bob *= editorState.replayVisuals.viewBobMultiplier;
+        }
+
         if (Math.abs(bob) < 0.001f) return;
 
         float sinPhase = Mth.sin(phase * (float) Math.PI);
-        poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 2.0F));
+
+        ItemStack mainHand = viewPlayer.getMainHandItem();
+        if (!mainHand.isEmpty() && mainHand.getItem().getClass().getName().contains("com.tacz.guns")) {
+            poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 2.0F));
+        } else {
+            poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 1.5F));
+        }
     }
 
     @Inject(method = "tryTakeScreenshotIfNeeded", at = @At("HEAD"), cancellable = true)

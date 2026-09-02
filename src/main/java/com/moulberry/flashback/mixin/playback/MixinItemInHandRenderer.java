@@ -6,6 +6,7 @@ import com.mojang.math.Axis;
 import com.moulberry.flashback.Flashback;
 import com.moulberry.flashback.ext.ItemInHandRendererExt;
 import com.moulberry.flashback.ext.RemotePlayerExt;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.ItemInHandRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
@@ -49,6 +50,14 @@ public abstract class MixinItemInHandRenderer implements ItemInHandRendererExt {
     @Shadow
     private static boolean isChargedCrossbow(ItemStack itemStack) {
         return false;
+    }
+
+    @Inject(method = "renderArmWithItem", at = @At("HEAD"), cancellable = true)
+    private void flashback$cancelThirdPersonArmRender(AbstractClientPlayer player, float f, float g, InteractionHand hand, float h, ItemStack stack, float i, PoseStack poseStack, MultiBufferSource buffer, int light, CallbackInfo ci) {
+        if (!Flashback.isInReplay()) return;
+        if (!Minecraft.getInstance().options.getCameraType().isFirstPerson()) {
+            ci.cancel();
+        }
     }
 
     @Unique

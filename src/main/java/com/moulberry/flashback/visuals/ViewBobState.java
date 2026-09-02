@@ -58,7 +58,6 @@ public class ViewBobState {
                 state.walkDist += dist * 0.6f;
 
                 state.oBob = state.bob;
-                state.bob = 0f;
                 state.bob += (dist - state.bob) * 0.4f;
             }
 

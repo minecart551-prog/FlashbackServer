@@ -48,6 +48,9 @@ public class ReplayVisuals {
 
     public boolean overrideNightVision = false;
 
+    public float viewBobMultiplier = 1.0f;
+    public float viewBobPitchFrequency = 0.5f;
+
     public boolean ruleOfThirdsGuide = false;
     public boolean centerGuide = false;
     public boolean cameraPath = true;
