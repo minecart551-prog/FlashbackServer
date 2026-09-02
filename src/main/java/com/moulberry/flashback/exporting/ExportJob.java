@@ -310,7 +310,11 @@ public class ExportJob {
             timer.partialTick = (float) partialTick;
 
             start = System.nanoTime();
-            Minecraft.getInstance().gameRenderer.render(timer.partialTick, 0 /* NOTE astavie: appears unused ? */, true);
+            try {
+                Minecraft.getInstance().gameRenderer.render(timer.partialTick, 0 /* NOTE astavie: appears unused ? */, true);
+            } catch (StackOverflowError e) {
+                Flashback.LOGGER.warn("StackOverflowError during export render (likely playerAnim mod bug), skipping frame");
+            }
             renderTimeNanos += System.nanoTime() - start;
 
             renderTarget.unbindWrite();

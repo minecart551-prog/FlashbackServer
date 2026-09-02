@@ -349,7 +349,7 @@ public class TaczEventInjector {
                             }
                         }
                     } catch (Exception ignored) {}
-                    LOGGER.info("[TACZ-AIM] pending={} synced={} aim={}({}) progress={}(synced={}) aimDyn=({},{}) jumpDyn={} refitDyn={} switchDyn={} shootAge={}s jumpAge={}s gameTick={}",
+                    LOGGER.debug("[TACZ-AIM] pending={} synced={} aim={}({}) progress={}(synced={}) aimDyn=({},{}) jumpDyn={} refitDyn={} switchDyn={} shootAge={}s jumpAge={}s gameTick={}",
                             pendingAimState, syncedAiming,
                             currentState, viewPlayer.getId(),
                             String.format("%.3f", currentProgress),

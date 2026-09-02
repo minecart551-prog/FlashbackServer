@@ -356,13 +356,11 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
     public void handleBlockEntityData(ClientboundBlockEntityDataPacket clientboundBlockEntityDataPacket) {
         BlockPos blockPos = clientboundBlockEntityDataPacket.getPos();
         this.level().getBlockEntity(blockPos, clientboundBlockEntityDataPacket.getType()).ifPresent(blockEntity -> {
-            // Update data
             CompoundTag tag = clientboundBlockEntityDataPacket.getTag();
             if (tag != null) {
                 blockEntity.load(tag);
             }
 
-            // Sync
             blockEntity.setChanged();
             BlockState blockState = this.level().getBlockState(blockPos);
             Level level = blockEntity.getLevel();
@@ -370,6 +368,7 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
                 level.sendBlockUpdated(blockPos, blockState, blockState, 3);
             }
         });
+        forward(clientboundBlockEntityDataPacket);
     }
 
     @Override

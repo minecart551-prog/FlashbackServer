@@ -160,7 +160,7 @@ public class AccurateEntityPositionHandler {
 
         if (isCameraEntity && ++applyDebugCounter % 30 == 0) {
             net.minecraft.world.entity.player.Player spec = com.moulberry.flashback.Flashback.getSpectatingPlayer();
-            LOGGER.info("[APPLY-DBG] entity={}({}) isCam={} yaw={}->{} pitch={}->{} specYaw={} specPitch={} specId={}",
+            LOGGER.debug("[APPLY-DBG] entity={}({}) isCam={} yaw={}->{} pitch={}->{} specYaw={} specPitch={} specId={}",
                     entity.getClass().getSimpleName(), entity.getId(),
                     isCameraEntity,
                     String.format("%.2f", yawBefore), String.format("%.2f", yaw),
