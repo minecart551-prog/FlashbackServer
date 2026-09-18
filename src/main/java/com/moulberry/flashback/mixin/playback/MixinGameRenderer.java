@@ -95,8 +95,12 @@ public abstract class MixinGameRenderer {
     // During normal gameplay, TACZ cancels bobView via cancelItemInHandViewBobbing.
     // We must do the same here — TACZ handles all gun positioning internally through
     // its own renderFirstPerson/applyFirstPersonGunTransform pipeline. Adding any
-    // custom bob (translate, ZP roll, XP rotation) would conflict with TACZ's own
+    // custom bob (translate, ZP roll, XP rotation) here would conflict with TACZ's own
     // transforms and cause the gun to shift left.
+    //
+    // Walk bob for TACZ guns is applied inside MixinTaczRightHandRender/MixinTaczLeftHandRender,
+    // directly on the poseStack that TACZ uses for gun model rendering, where it actually
+    // affects the gun and arm positioning.
     @WrapOperation(method = "renderItemInHand", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/GameRenderer;bobView(Lcom/mojang/blaze3d/vertex/PoseStack;F)V"))
     public void renderItemInHand_bobView(GameRenderer instance, PoseStack poseStack, float partialTick, Operation<Void> original) {
         if (!this.minecraft.options.getCameraType().isFirstPerson()) {
@@ -107,35 +111,8 @@ public abstract class MixinGameRenderer {
         if (viewPlayer != null) {
             ItemStack mainHand = viewPlayer.getMainHandItem();
             if (!mainHand.isEmpty() && mainHand.getItem().getClass().getName().contains("com.tacz.guns")) {
-                ViewBobState.BobState state = ViewBobState.getState(viewPlayer.getId());
-                if (state == null) {
-                    LocalPlayer localPlayer = Minecraft.getInstance().player;
-                    if (localPlayer != null) {
-                        state = ViewBobState.getState(localPlayer.getId());
-                    }
-                }
-                if (state == null) return;
-
-                float f = state.walkDist - state.walkDistO;
-                float phase = -(state.walkDist + f * partialTick);
-                float bob = Mth.lerp(partialTick, state.oBob, state.bob);
-
-                EditorState editorState = EditorStateManager.getCurrent();
-                if (editorState != null) {
-                    bob *= editorState.replayVisuals.viewBobMultiplier;
-                }
-
-                if (Math.abs(bob) < 0.001f) return;
-
-                float sinPhase = Mth.sin(phase * (float) Math.PI);
-                float cosPhase = Mth.cos(phase * (float) Math.PI);
-
-                float bobY = -Math.abs(cosPhase * bob) * 0.25F * 0.5F;
-
-                poseStack.translate(0, bobY, 0.0F);
-                poseStack.mulPose(Axis.YP.rotationDegrees(sinPhase * bob * 0.5F));
-                poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 2.0F));
-                poseStack.mulPose(Axis.XP.rotationDegrees(Math.abs(Mth.cos(phase * (float) Math.PI - 0.2F) * bob) * 3.0F));
+                // Cancel vanilla bobView for TACZ guns. Walk bob is applied inside
+                // MixinTaczRightHandRender/MixinTaczLeftHandRender instead.
                 return;
             }
         }
@@ -148,7 +125,56 @@ public abstract class MixinGameRenderer {
         if (spectatingPlayer != null && this.minecraft.options.getCameraType().isFirstPerson()) {
             Entity entity = this.minecraft.getCameraEntity() == null ? this.minecraft.player : this.minecraft.getCameraEntity();
             float frozenPartialTick = ((MinecraftExt)this.minecraft).flashback$getReplayTimer().manager.isEntityFrozen(entity) ? 1.0f : f;
-            ((ItemInHandRendererExt)instance).flashback$renderHandsWithItems(frozenPartialTick, poseStack, bufferSource, spectatingPlayer, i);
+
+            ItemStack mainHand = spectatingPlayer.getMainHandItem();
+            boolean isTaczGun = !mainHand.isEmpty() && mainHand.getItem().getClass().getName().contains("com.tacz.guns");
+
+            if (isTaczGun) {
+                // TACZ cancels vanilla bobView() but does NOT replace the Y translation bob.
+                // It only handles rotation bob (via xBob/yBob) and bone sway animations.
+                // We apply the bob Y translation directly to the poseStack, which flows through
+                // to bedrockGunModel.render(). Since our translation is applied first on the
+                // poseStack, it becomes the OUTERMOST transform — applied in screen space
+                // after all of TACZ's internal transforms (rotations, positioning, etc.).
+                ViewBobState.BobState state = ViewBobState.getState(spectatingPlayer.getId());
+                if (state == null) {
+                    LocalPlayer localPl = Minecraft.getInstance().player;
+                    if (localPl != null) {
+                        state = ViewBobState.getState(localPl.getId());
+                    }
+                }
+
+                boolean hasBob = false;
+                if (state != null) {
+                    float walkDelta = state.walkDist - state.walkDistO;
+                    float phase = -(state.walkDist + walkDelta * frozenPartialTick);
+                    float bob = Mth.lerp(frozenPartialTick, state.oBob, state.bob);
+
+                    EditorState editorState = EditorStateManager.getCurrent();
+                    if (editorState != null) {
+                        bob *= editorState.replayVisuals.viewBobMultiplier;
+                    }
+
+                    if (Math.abs(bob) > 0.001f) {
+                        float cosPhase = Mth.cos(phase * (float) Math.PI);
+                        float bobY = -Math.abs(cosPhase * bob) * 0.25F * 0.5F;
+
+                        poseStack.pushPose();
+                        poseStack.translate(0, bobY, 0);
+                        hasBob = true;
+                    }
+                }
+
+                try {
+                    ((ItemInHandRendererExt)instance).flashback$renderHandsWithItems(frozenPartialTick, poseStack, bufferSource, spectatingPlayer, i);
+                } finally {
+                    if (hasBob) {
+                        poseStack.popPose();
+                    }
+                }
+            } else {
+                ((ItemInHandRendererExt)instance).flashback$renderHandsWithItems(frozenPartialTick, poseStack, bufferSource, spectatingPlayer, i);
+            }
         } else {
             original.call(instance, f, poseStack, bufferSource, localPlayer, i);
         }

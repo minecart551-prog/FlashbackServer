@@ -6,10 +6,8 @@ import com.moulberry.flashback.Flashback;
 import com.moulberry.mixinconstraints.annotations.IfModLoaded;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
-import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.player.PlayerRenderer;
 import net.minecraft.world.entity.HumanoidArm;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemDisplayContext;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
@@ -79,6 +77,7 @@ public class MixinTaczLeftHandRender {
             if (delegateMethod == null) return;
 
             ci.cancel();
+
             poseStack.mulPose(Axis.ZP.rotationDegrees(180f));
             Matrix3f normal = new Matrix3f(poseStack.last().normal());
             Matrix4f pose = new Matrix4f(poseStack.last().pose());
@@ -98,6 +97,7 @@ public class MixinTaczLeftHandRender {
                     return null;
                 }
             );
+
             delegateMethod.invoke(bedrockGunModel, proxy);
         } catch (Exception ignored) {}
     }

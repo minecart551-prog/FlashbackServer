@@ -68,6 +68,7 @@
     "compat.tacz.MixinGunAnimationStateContext",
     "compat.tacz.MixinTaczRightHandRender",
     "compat.tacz.MixinTaczLeftHandRender",
+    "compat.tacz.MixinTaczSoundPlayManager",
     "compat.replaymod.MixinReplayModRecording",
     "compat.voice_chat.MixinVoiceChatALSpeakerBase",
     "compat.voice_chat.MixinVoiceChatClientVoicechat",
