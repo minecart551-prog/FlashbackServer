@@ -87,7 +87,7 @@ public abstract class MixinCamera {
                             return;
                         }
                     }
-                } else {
+				} else {
                     ViewBobState.BobState state = ViewBobState.getState(viewPlayer.getId());
                     if (state == null) {
                         LocalPlayer localPlayer = Minecraft.getInstance().player;

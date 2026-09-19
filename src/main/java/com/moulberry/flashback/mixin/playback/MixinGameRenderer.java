@@ -229,8 +229,6 @@ public abstract class MixinGameRenderer {
         ItemStack mainHand = viewPlayer.getMainHandItem();
         if (!mainHand.isEmpty() && mainHand.getItem().getClass().getName().contains("com.tacz.guns")) {
             poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 2.0F));
-        } else {
-            poseStack.mulPose(Axis.ZP.rotationDegrees(sinPhase * bob * 1.5F));
         }
     }
 

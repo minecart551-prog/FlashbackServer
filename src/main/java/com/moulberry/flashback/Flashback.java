@@ -55,13 +55,16 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
 import net.minecraft.FileUtil;
 import net.minecraft.Util;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.Options;
 import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.gui.screens.AlertScreen;
 import net.minecraft.client.gui.screens.PauseScreen;
@@ -94,8 +97,12 @@ import net.minecraft.world.level.levelgen.WorldDimensions;
 import net.minecraft.world.level.levelgen.WorldOptions;
 import net.minecraft.world.level.storage.LevelStorageSource;
 import net.minecraft.world.level.storage.PrimaryLevelData;
+import net.minecraft.world.phys.Vec3;
+import com.mojang.blaze3d.platform.InputConstants;
+import org.lwjgl.glfw.GLFW;
 import org.apache.commons.io.FileUtils;
 import org.jetbrains.annotations.Nullable;
+import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -124,6 +131,7 @@ public class Flashback implements ModInitializer, ClientModInitializer {
     public static ExportJob EXPORT_JOB = null;
     private static FlashbackConfig config;
     private static Path configDirectory = null;
+    public static KeyMapping pauseRecordingKeybind = null;
 
     private static int delayedStartRecording = 0;
     private static boolean delayedOpenConfig = false;
@@ -327,6 +335,12 @@ public class Flashback implements ModInitializer, ClientModInitializer {
             dispatcher.register(flashback);
         });
 
+        pauseRecordingKeybind = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.flashback.pauseRecording",
+                InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P,
+                "category.flashback"
+        ));
+
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             if (!Flashback.isInReplay() && Flashback.getConfig().automaticallyStart && RECORDER == null) {
                 delayedStartRecording = 20;
@@ -340,6 +354,14 @@ public class Flashback implements ModInitializer, ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(minecraft -> {
             updateIsInReplay();
+
+            if (pauseRecordingKeybind != null) {
+                while (pauseRecordingKeybind.consumeClick()) {
+                    if (RECORDER != null) {
+                        pauseRecordingReplay(!RECORDER.isPaused());
+                    }
+                }
+            }
 
             AccurateEntityPositionHandler.tick();
 

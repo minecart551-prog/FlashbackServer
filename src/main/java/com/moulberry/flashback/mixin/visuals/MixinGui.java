@@ -4,10 +4,12 @@ import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.moulberry.flashback.Flashback;
+import com.moulberry.flashback.record.Recorder;
 import com.moulberry.flashback.state.EditorState;
 import com.moulberry.flashback.state.EditorStateManager;
 import com.moulberry.flashback.editor.ui.CustomImGuiImplGlfw;
 import com.moulberry.flashback.editor.ui.ReplayUI;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
 import net.minecraft.client.gui.Gui;
@@ -15,6 +17,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.ChatComponent;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.GameType;
@@ -37,6 +40,27 @@ public abstract class MixinGui {
 
     @Unique
     private GameType cameraGameType = GameType.DEFAULT_MODE;
+
+    @Inject(method = "render", at = @At("RETURN"))
+    private void flashback$renderRecordingIndicator(GuiGraphics guiGraphics, float partialTick, CallbackInfo ci) {
+        Recorder recorder = Flashback.RECORDER;
+        if (recorder == null) return;
+
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.options.hideGui) return;
+        if (mc.player == null) return;
+
+        int x = 4;
+        int y = 4;
+
+        if (recorder.isPaused()) {
+            guiGraphics.drawString(mc.font, Component.literal("|| PAUSED").withStyle(
+                    ChatFormatting.YELLOW), x, y, 0xFFFFFF, true);
+        } else {
+            guiGraphics.drawString(mc.font, Component.literal("\u25CF REC").withStyle(
+                    ChatFormatting.RED), x, y, 0xFFFFFF, true);
+        }
+    }
 
     @Inject(method = "render", at = @At("HEAD"))
     public void render_updateCameraGameType(GuiGraphics guiGraphics, float f, CallbackInfo ci) {
