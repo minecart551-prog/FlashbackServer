@@ -8,6 +8,7 @@ import com.moulberry.flashback.ext.ItemInHandRendererExt;
 import com.moulberry.flashback.ext.RemotePlayerExt;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.ItemInHandRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.util.Mth;
@@ -93,28 +94,47 @@ public abstract class MixinItemInHandRenderer implements ItemInHandRendererExt {
 
     @Override
     public void flashback$renderHandsWithItems(float partialTick, PoseStack poseStack, MultiBufferSource.BufferSource bufferSource, AbstractClientPlayer clientPlayer, int i) {
-        float m;
-        float l;
         float g = clientPlayer.getAttackAnim(partialTick);
         InteractionHand interactionHand = MoreObjects.firstNonNull(clientPlayer.swingingArm, InteractionHand.MAIN_HAND);
-        float h = Mth.lerp(partialTick, clientPlayer.xRotO, clientPlayer.getXRot());
+        float viewXRot = Mth.lerp(partialTick, clientPlayer.xRotO, clientPlayer.getXRot());
+        float viewYRot = Mth.lerp(partialTick, clientPlayer.yRotO, clientPlayer.getYRot());
         int handRenderSelection = evaluateWhichHandsToRender(clientPlayer);
-        // NOTE: We intentionally do NOT apply rotation bob here.
-        // TACZ's GunItemRendererWrapper.renderFirstPerson() applies its own rotation bob
-        // (viewRot - bob) * -0.1 for both LocalPlayer and RemotePlayer. If we also apply it
-        // here, the rotations cancel each other out, making the gun not track the view.
-        // Camera-level bobView is handled by MixinGameRenderer.renderItemInHand_bobView.
+
+        boolean isTaczGun = !this.mainHandItem.isEmpty() && this.mainHandItem.getItem().getClass().getName().contains("com.tacz.guns");
+
+        poseStack.pushPose();
+
+        // Apply vanilla rotation bob: (viewRot - walkBob) * 0.1
+        // TACZ applies its own (viewRot - bob) * -0.1, so skip to avoid canceling out.
+        if (!isTaczGun) {
+            float xBob;
+            float yBob;
+            if (clientPlayer instanceof RemotePlayerExt ext) {
+                xBob = ext.flashback$getXBob(partialTick);
+                yBob = ext.flashback$getYBob(partialTick);
+            } else if (clientPlayer instanceof LocalPlayer localPlayer) {
+                xBob = Mth.lerp(partialTick, localPlayer.xBobO, localPlayer.xBob);
+                yBob = Mth.lerp(partialTick, localPlayer.yBobO, localPlayer.yBob);
+            } else {
+                xBob = 0f;
+                yBob = 0f;
+            }
+            poseStack.mulPose(Axis.XP.rotationDegrees((viewXRot - xBob) * 0.1f));
+            poseStack.mulPose(Axis.YP.rotationDegrees((viewYRot - yBob) * 0.1f));
+        }
 
         if ((handRenderSelection & RENDER_MAIN_HAND) != 0) {
-            l = interactionHand == InteractionHand.MAIN_HAND ? g : 0.0f;
-            m = 1.0f - Mth.lerp(partialTick, this.oMainHandHeight, this.mainHandHeight);
-            renderArmWithItem(clientPlayer, partialTick, h, InteractionHand.MAIN_HAND, l, this.mainHandItem, m, poseStack, bufferSource, i);
+            float l = interactionHand == InteractionHand.MAIN_HAND ? g : 0.0f;
+            float m = 1.0f - Mth.lerp(partialTick, this.oMainHandHeight, this.mainHandHeight);
+            renderArmWithItem(clientPlayer, partialTick, viewXRot, InteractionHand.MAIN_HAND, l, this.mainHandItem, m, poseStack, bufferSource, i);
         }
         if ((handRenderSelection & RENDER_OFF_HAND) != 0) {
-            l = interactionHand == InteractionHand.OFF_HAND ? g : 0.0f;
-            m = 1.0f - Mth.lerp(partialTick, this.oOffHandHeight, this.offHandHeight);
-            renderArmWithItem(clientPlayer, partialTick, h, InteractionHand.OFF_HAND, l, this.offHandItem, m, poseStack, bufferSource, i);
+            float l = interactionHand == InteractionHand.OFF_HAND ? g : 0.0f;
+            float m = 1.0f - Mth.lerp(partialTick, this.oOffHandHeight, this.offHandHeight);
+            renderArmWithItem(clientPlayer, partialTick, viewXRot, InteractionHand.OFF_HAND, l, this.offHandItem, m, poseStack, bufferSource, i);
         }
+
+        poseStack.popPose();
         bufferSource.endBatch();
     }
 
