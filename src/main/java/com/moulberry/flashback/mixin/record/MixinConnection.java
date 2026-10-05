@@ -27,6 +27,9 @@ public class MixinConnection {
             if (packetListener instanceof ClientGamePacketListener) {
                 if (packet instanceof ClientboundCustomPayloadPacket cp) {
                     ResourceLocation id = cp.getIdentifier();
+                    if (id.getNamespace().equals("sittingplus")) {
+                        REC_LOGGER.info("[Flashback Record] Incoming sittingplus payload: path={}", id.getPath());
+                    }
                     REC_LOGGER.debug("[Flashback Record] Incoming custom payload: namespace={} path={} class={}", id.getNamespace(), id.getPath(), packet.getClass().getSimpleName());
                 }
                 recorder.writePacketAsync(packet, ConnectionProtocol.PLAY);

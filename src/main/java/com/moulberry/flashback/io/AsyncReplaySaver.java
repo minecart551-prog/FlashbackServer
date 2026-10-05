@@ -27,7 +27,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -90,6 +94,19 @@ public class AsyncReplaySaver {
 
     private final Int2ObjectMap<List<CachedChunkPacket>> cachedChunkPackets = new Int2ObjectOpenHashMap<>();
     private int totalWrittenChunkPackets = 0;
+
+    private static final ResourceLocation SITTINGPLUS_START_SIT = new ResourceLocation("sittingplus", "start_sit");
+    private static final ResourceLocation SITTINGPLUS_STOP_SIT = new ResourceLocation("sittingplus", "stop_sit");
+
+    /**
+     * Players that have started sitting at some point during this recording, mapped to the animation
+     * they are currently playing (absent when they are no longer sitting).
+     *
+     * <p>Only touched from the AsyncReplaySaver writer thread, so that it always agrees with the order
+     * packets were written to the replay in.
+     */
+    private final Set<UUID> knownSittingPlayers = new HashSet<>();
+    private final Map<UUID, ResourceLocation> currentSittingStates = new LinkedHashMap<>();
 
     public void writeGamePackets(List<Packet<? super ClientGamePacketListener>> packets) {
         List<Packet<? super ClientGamePacketListener>> packetCopy = new ArrayList<>(packets);
@@ -182,10 +199,10 @@ public class AsyncReplaySaver {
         });
     }
 
-    private static FriendlyByteBuf writeGamePacket(ReplayWriter writer, Packet<? super ClientGamePacketListener> packet, FriendlyByteBuf customPayloadTempBuffer) {
+    private FriendlyByteBuf writeGamePacket(ReplayWriter writer, Packet<? super ClientGamePacketListener> packet, FriendlyByteBuf customPayloadTempBuffer) {
         if (packet instanceof ClientboundBundlePacket bp) {
             for (Packet<ClientGamePacketListener> child : bp.subPackets()) {
-                customPayloadTempBuffer = writeGamePacket(writer, child, customPayloadTempBuffer);
+                customPayloadTempBuffer = this.writeGamePacket(writer, child, customPayloadTempBuffer);
             }
             return customPayloadTempBuffer;
         }
@@ -193,11 +210,15 @@ public class AsyncReplaySaver {
         // Record custom payload packets from supported mods (e.g., CustomNPCs, TACZ)
         if (packet instanceof ClientboundCustomPayloadPacket cp) {
             String modId = cp.getIdentifier().getNamespace();
+            this.trackSittingState(cp);
             // Record custom packets from mods we want to support
-            if (modId.equals("customnpcs") || modId.equals("noppes") || modId.equals("tacz") || modId.equals("ic_ip") || modId.equals("mtr") || modId.equals("mtrsteamloco")) {
+            if (modId.equals("customnpcs") || modId.equals("noppes") || modId.equals("tacz") || modId.equals("ic_ip") || modId.equals("mtr") || modId.equals("mtrsteamloco") || modId.equals("sittingplus")) {
                 writer.startAction(ActionGamePacket.INSTANCE);
                 var buf = writer.friendlyByteBuf();
                 int packetId = ConnectionProtocol.PLAY.getPacketId(PacketFlow.CLIENTBOUND, packet);
+                if (modId.equals("sittingplus")) {
+                    Flashback.LOGGER.info("[Flashback Record] Saving sittingplus payload to replay: {}", cp.getIdentifier());
+                }
                 Flashback.LOGGER.debug("[Flashback Record] Saving {} custom payload to replay: {} (packetId={})", modId, cp.getIdentifier(), packetId);
                 buf.writeVarInt(packetId);
                 packet.write(buf);
@@ -218,6 +239,84 @@ public class AsyncReplaySaver {
         packet.write(buf);
         writer.finishAction(ActionGamePacket.INSTANCE);
         return customPayloadTempBuffer;
+    }
+
+    /**
+     * Keeps track of who is currently sitting so the state can be written into snapshots.
+     * Without this, seeking into a replay chunk that starts after a player sat down would
+     * leave them standing, because start_sit/stop_sit are one-shot packets that only exist
+     * in the action stream at the moment they happened.
+     */
+    private void trackSittingState(ClientboundCustomPayloadPacket packet) {
+        ResourceLocation identifier = packet.getIdentifier();
+        if (!identifier.getNamespace().equals("sittingplus")) {
+            return;
+        }
+
+        try {
+            // getData() returns a copy, so this doesn't consume the packet's payload
+            FriendlyByteBuf data = packet.getData();
+            if (identifier.getPath().equals("start_sit")) {
+                UUID player = data.readUUID();
+                ResourceLocation animation = data.readResourceLocation();
+                this.currentSittingStates.put(player, animation);
+                this.knownSittingPlayers.add(player);
+            } else if (identifier.getPath().equals("stop_sit")) {
+                this.currentSittingStates.remove(data.readUUID());
+            }
+        } catch (Exception e) {
+            Flashback.LOGGER.debug("Failed to track SittingPlus state for {}: {}", identifier, e.getMessage());
+        }
+    }
+
+    private static void writeCustomPayload(ReplayWriter writer, ResourceLocation identifier, FriendlyByteBuf data) {
+        ClientboundCustomPayloadPacket packet = new ClientboundCustomPayloadPacket(identifier, data);
+        int packetId = ConnectionProtocol.PLAY.getPacketId(PacketFlow.CLIENTBOUND, packet);
+        if (packetId == -1) {
+            Flashback.LOGGER.error("Could not get packet id of custom payload packet {}!", identifier);
+            return;
+        }
+
+        writer.startAction(ActionGamePacket.INSTANCE);
+        FriendlyByteBuf buf = writer.friendlyByteBuf();
+        buf.writeVarInt(packetId);
+        packet.write(buf);
+        writer.finishAction(ActionGamePacket.INSTANCE);
+    }
+
+    /**
+     * Writes the current SittingPlus state into the replay, so that jumping to this point
+     * restores who is sitting and on what. Everyone known to have sat gets a stop_sit first,
+     * which clears any stale animation left over from before the jump, followed by a start_sit
+     * for everyone currently sitting.
+     *
+     * <p>Must be submitted between {@code ReplayWriter#startSnapshot} and
+     * {@code ReplayWriter#endSnapshot} (or immediately after the snapshot's packets) so that it
+     * is part of the state restored when seeking.
+     */
+    public void writeSittingStates() {
+        this.submit(writer -> {
+            List<UUID> knownPlayers = new ArrayList<>(this.knownSittingPlayers);
+            Map<UUID, ResourceLocation> sittingPlayers = new LinkedHashMap<>(this.currentSittingStates);
+
+            if (!knownPlayers.isEmpty()) {
+                Flashback.LOGGER.info("[Flashback Record] Writing sitting state to snapshot: {} known, {} currently sitting",
+                        knownPlayers.size(), sittingPlayers.size());
+            }
+
+            for (UUID player : knownPlayers) {
+                FriendlyByteBuf data = new FriendlyByteBuf(Unpooled.buffer());
+                data.writeUUID(player);
+                writeCustomPayload(writer, SITTINGPLUS_STOP_SIT, data);
+            }
+
+            for (Map.Entry<UUID, ResourceLocation> entry : sittingPlayers.entrySet()) {
+                FriendlyByteBuf data = new FriendlyByteBuf(Unpooled.buffer());
+                data.writeUUID(entry.getKey());
+                data.writeResourceLocation(entry.getValue());
+                writeCustomPayload(writer, SITTINGPLUS_START_SIT, data);
+            }
+        });
     }
 
     private void writeChunkCacheFile(FriendlyByteBuf chunkCacheOutput, int index) {

@@ -1091,6 +1091,7 @@ public class Recorder {
         }
 
         this.asyncReplaySaver.writeGamePackets(gamePackets);
+        this.asyncReplaySaver.writeSittingStates();
 
         if (asActualSnapshot) {
             this.asyncReplaySaver.submit(ReplayWriter::endSnapshot);

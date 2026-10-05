@@ -4,6 +4,7 @@ import com.mojang.authlib.GameProfile;
 import com.mojang.datafixers.util.Either;
 import com.moulberry.flashback.Flashback;
 import com.moulberry.flashback.PacketHelper;
+import com.moulberry.flashback.compat.sittingplus.SittingPlusCompat;
 import com.moulberry.flashback.exception.UnsupportedPacketException;
 import com.moulberry.flashback.ext.LevelChunkExt;
 import com.moulberry.flashback.ext.ServerLevelExt;
@@ -1499,6 +1500,10 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
     @Override
     public void handleCustomPayload(ClientboundCustomPayloadPacket clientboundCustomPayloadPacket) {
         ResourceLocation id = clientboundCustomPayloadPacket.getIdentifier();
+
+        if (id.getNamespace().equals("sittingplus")) {
+            SittingPlusCompat.track(id, clientboundCustomPayloadPacket.getData());
+        }
         
         // Special handling for CustomNPCs packets - forward them directly to replay viewers
         // so the client-side CustomNPCs packet handler can process them (e.g. PacketNpcUpdate

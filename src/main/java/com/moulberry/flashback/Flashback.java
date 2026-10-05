@@ -10,6 +10,7 @@ import com.mojang.serialization.Lifecycle;
 import com.moulberry.flashback.action.*;
 import com.moulberry.flashback.command.BetterColorArgument;
 import com.moulberry.flashback.compat.DistantHorizonsSupport;
+import com.moulberry.flashback.compat.sittingplus.SittingPlusCompat;
 import com.moulberry.flashback.compat.simple_voice_chat.SimpleVoiceChatPlayback;
 import com.moulberry.flashback.compat.tacz.TaczRecordingCompat;
 
@@ -226,6 +227,8 @@ public class Flashback implements ModInitializer, ClientModInitializer {
         KeyframeRegistry.register(SpeedKeyframeType.INSTANCE);
         KeyframeRegistry.register(TimelapseKeyframeType.INSTANCE);
         KeyframeRegistry.register(TimeOfDayKeyframeType.INSTANCE);
+
+        SittingPlusCompat.register();
 
         ClientPlayNetworking.registerGlobalReceiver(FlashbackForceClientTick.TYPE, (payload, localPlayer, context) -> {
             if (Flashback.isInReplay()) {
@@ -649,7 +652,11 @@ public class Flashback implements ModInitializer, ClientModInitializer {
     }
 
     public static void updateIsInReplay() {
-        isInReplay = Minecraft.getInstance().getSingleplayerServer() instanceof ReplayServer;
+        boolean inReplay = Minecraft.getInstance().getSingleplayerServer() instanceof ReplayServer;
+        if (isInReplay && !inReplay) {
+            SittingPlusCompat.clear();
+        }
+        isInReplay = inReplay;
     }
 
     public static boolean isInReplay() {

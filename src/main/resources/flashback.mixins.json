@@ -70,6 +70,7 @@
     "compat.tacz.MixinTaczLeftHandRender",
     "compat.tacz.MixinTaczSoundPlayManager",
     "compat.replaymod.MixinReplayModRecording",
+    "compat.shouldersurfing.MixinShoulderSurfingCamera",
     "compat.voice_chat.MixinVoiceChatALSpeakerBase",
     "compat.voice_chat.MixinVoiceChatClientVoicechat",
     "compat.voice_chat.MixinVoiceChatRenderEvents",
