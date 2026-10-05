@@ -20,6 +20,7 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.SharedConstants;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.CameraType;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.components.BossHealthOverlay;
 import net.minecraft.client.gui.components.LerpingBossEvent;
@@ -109,6 +110,7 @@ public class Recorder {
     private BlockPos lastDestroyPos = null;
     private int lastDestroyProgress = -1;
     private int lastSelectedSlot = -1;
+    private int lastCameraType = -1;
     private float lastExperienceProgress = -1;
     private int lastTotalExperience = -1;
     private int lastExperienceLevel = -1;
@@ -426,6 +428,7 @@ public class Recorder {
             this.lastDestroyPos = null;
             this.lastDestroyProgress = -1;
             this.lastSelectedSlot = -1;
+            this.lastCameraType = -1;
             this.lastExperienceProgress = -1;
             this.lastTotalExperience = -1;
             this.lastExperienceLevel = -1;
@@ -458,6 +461,13 @@ public class Recorder {
                 gamePackets.add(new ClientboundSetCarriedItemPacket(selectedSlot));
                 this.lastSelectedSlot = selectedSlot;
             }
+        }
+
+        // Update camera perspective (F5) so the replay can switch perspective the same way
+        int cameraType = Minecraft.getInstance().options.getCameraType().ordinal();
+        if (cameraType != this.lastCameraType) {
+            this.lastCameraType = cameraType;
+            this.asyncReplaySaver.writeCameraType(cameraType);
         }
 
         // Update entity data
@@ -1092,6 +1102,12 @@ public class Recorder {
 
         this.asyncReplaySaver.writeGamePackets(gamePackets);
         this.asyncReplaySaver.writeSittingStates();
+        // The very first snapshot is written before writeLocalData has ever sampled the camera,
+        // so fall back to the current value — otherwise seeking back to the start of the replay
+        // would have no perspective to restore.
+        this.asyncReplaySaver.writeCameraType(this.lastCameraType >= 0
+                ? this.lastCameraType
+                : Minecraft.getInstance().options.getCameraType().ordinal());
 
         if (asActualSnapshot) {
             this.asyncReplaySaver.submit(ReplayWriter::endSnapshot);

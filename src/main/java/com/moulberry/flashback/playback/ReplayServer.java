@@ -573,6 +573,10 @@ public class ReplayServer extends IntegratedServer {
         this.gamePacketHandler.handleCreateLocalPlayer(friendlyByteBuf);
     }
 
+    public void handleCameraType(FriendlyByteBuf friendlyByteBuf) {
+        ReplayPerspective.track(friendlyByteBuf.readVarInt());
+    }
+
     public void handleAccuratePlayerPosition(FriendlyByteBuf friendlyByteBuf) {
         var packet = FlashbackAccurateEntityPosition.TYPE.read(friendlyByteBuf);
 
@@ -1216,6 +1220,8 @@ public class ReplayServer extends IntegratedServer {
     }
 
     private void clearDataForPlayingSnapshot() {
+        ReplayPerspective.clearRecorded();
+
         for (ReplayPlayer replayViewer : this.replayViewers) {
             for (UUID uuid : this.bossEvents.keySet()) {
                 replayViewer.connection.send(ClientboundBossEventPacket.createRemovePacket(uuid));

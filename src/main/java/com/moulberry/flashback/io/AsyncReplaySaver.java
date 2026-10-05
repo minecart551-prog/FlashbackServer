@@ -5,6 +5,7 @@ import com.moulberry.flashback.CachedChunkPacket;
 import com.moulberry.flashback.Flashback;
 import com.moulberry.flashback.SneakyThrow;
 import com.moulberry.flashback.TempFolderProvider;
+import com.moulberry.flashback.action.ActionCameraType;
 import com.moulberry.flashback.action.ActionGamePacket;
 import com.moulberry.flashback.action.ActionLevelChunkCached;
 import com.moulberry.flashback.playback.ReplayServer;
@@ -319,10 +320,31 @@ public class AsyncReplaySaver {
         });
     }
 
+    /**
+     * Writes the recording player's camera perspective (an ordinal of {@code CameraType}) into
+     * the replay, so that watching that player back switches perspective the same way they did.
+     *
+     * <p>Called both when the perspective changes and for every snapshot, so that seeking restores
+     * the value. Must be submitted between {@code ReplayWriter#startSnapshot} and
+     * {@code ReplayWriter#endSnapshot} for the snapshot case.
+     */
+    public void writeCameraType(int cameraType) {
+        if (cameraType < 0) {
+            return;
+        }
+
+        this.submit(writer -> {
+            writer.startAction(ActionCameraType.INSTANCE);
+            writer.friendlyByteBuf().writeVarInt(cameraType);
+            writer.finishAction(ActionCameraType.INSTANCE);
+        });
+    }
+
     private void writeChunkCacheFile(FriendlyByteBuf chunkCacheOutput, int index) {
         if (chunkCacheOutput == null || chunkCacheOutput.writerIndex() == 0) {
             return;
         }
+
 
         try {
             byte[] bytes = new byte[chunkCacheOutput.writerIndex()];

@@ -54,6 +54,7 @@ public class ReplayVisuals {
     public boolean ruleOfThirdsGuide = false;
     public boolean centerGuide = false;
     public boolean cameraPath = true;
+    public boolean syncPerspective = true;
     public Sizing sizing = Sizing.KEEP_ASPECT_RATIO;
     public AspectRatio changeAspectRatio = AspectRatio.ASPECT_16_9;
 

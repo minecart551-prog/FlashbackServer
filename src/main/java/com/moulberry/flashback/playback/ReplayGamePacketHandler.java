@@ -710,6 +710,7 @@ public class ReplayGamePacketHandler implements ClientGamePacketListener {
 
     public void handleCreateLocalPlayer(FriendlyByteBuf registryFriendlyByteBuf) {
         UUID uuid = registryFriendlyByteBuf.readUUID();
+        ReplayPerspective.setLocalPlayer(uuid);
         double x = registryFriendlyByteBuf.readDouble();
         double y = registryFriendlyByteBuf.readDouble();
         double z = registryFriendlyByteBuf.readDouble();

@@ -324,6 +324,12 @@ public class VisualsWindow {
                 editorState.markDirty();
             }
 
+            if (ImGui.checkbox("Sync Perspective", visuals.syncPerspective)) {
+                visuals.syncPerspective = !visuals.syncPerspective;
+                editorState.markDirty();
+            }
+            ImGuiHelper.tooltip("Follow the recorded player's first/third person perspective while spectating them.\nOnly applies to the player who was recording.");
+
             visuals.sizing = ImGuiHelper.enumCombo("Sizing", visuals.sizing);
             if (visuals.sizing == Sizing.CHANGE_ASPECT_RATIO) {
                 visuals.changeAspectRatio = ImGuiHelper.enumCombo("Aspect", visuals.changeAspectRatio);

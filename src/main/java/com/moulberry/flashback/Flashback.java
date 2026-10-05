@@ -36,6 +36,7 @@ import com.moulberry.flashback.packet.FlashbackRemoteSelectHotbarSlot;
 import com.moulberry.flashback.packet.FlashbackRemoteSetSlot;
 import com.moulberry.flashback.packet.FlashbackVoiceChatSound;
 import com.moulberry.flashback.playback.EmptyLevelSource;
+import com.moulberry.flashback.playback.ReplayPerspective;
 import com.moulberry.flashback.playback.ReplayServer;
 import com.moulberry.flashback.record.FlashbackMeta;
 import com.moulberry.flashback.record.Recorder;
@@ -219,6 +220,7 @@ public class Flashback implements ModInitializer, ClientModInitializer {
         ActionRegistry.register(ActionMoveEntities.INSTANCE);
         ActionRegistry.register(ActionLevelChunkCached.INSTANCE);
         ActionRegistry.register(ActionAccuratePlayerPosition.INSTANCE);
+        ActionRegistry.register(ActionCameraType.INSTANCE);
 
         KeyframeRegistry.register(CameraKeyframeType.INSTANCE);
         KeyframeRegistry.register(CameraOrbitKeyframeType.INSTANCE);
@@ -357,6 +359,7 @@ public class Flashback implements ModInitializer, ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(minecraft -> {
             updateIsInReplay();
+            ReplayPerspective.tick();
 
             if (pauseRecordingKeybind != null) {
                 while (pauseRecordingKeybind.consumeClick()) {
@@ -655,6 +658,7 @@ public class Flashback implements ModInitializer, ClientModInitializer {
         boolean inReplay = Minecraft.getInstance().getSingleplayerServer() instanceof ReplayServer;
         if (isInReplay && !inReplay) {
             SittingPlusCompat.clear();
+            ReplayPerspective.clear();
         }
         isInReplay = inReplay;
     }

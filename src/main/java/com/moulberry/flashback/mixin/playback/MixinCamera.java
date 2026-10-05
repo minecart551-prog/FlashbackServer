@@ -42,7 +42,17 @@ public abstract class MixinCamera {
 
         Vector2f rotation = AccurateEntityPositionHandler.getAccurateRotation(entity, partialTick);
         if (rotation != null) {
-            this.setRotation(rotation.y, rotation.x);
+            float yaw = rotation.y;
+            float pitch = rotation.x;
+            // In third person front (bl = detached, bl2 = mirrored) vanilla flips the view inside
+            // setup() — yaw + 180 and negated pitch — before backing the camera off. Overwriting
+            // the rotation here has to re-apply that mirror, otherwise the camera is still placed
+            // in front of the player but looks the same way as them, which reads as first person.
+            if (bl && bl2) {
+                yaw += 180.0F;
+                pitch = -pitch;
+            }
+            this.setRotation(yaw, pitch);
         }
         Vector3d position = AccurateEntityPositionHandler.getAccuratePosition(entity, partialTick);
         if (position != null) {
